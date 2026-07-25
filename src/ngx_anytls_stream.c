@@ -4,6 +4,7 @@
 
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_state.h"
 
 ngx_anytls_stream_t *
@@ -85,7 +86,6 @@ ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st)
 void
 ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 {
-    ngx_anytls_pending_t *p, *n;
     ngx_anytls_connection_t *ac;
     ngx_anytls_out_frame_t *f, *next;
 
@@ -95,7 +95,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     ac = st->ac;
 
-    if (!ac->closing && st->pending_out != 0) {
+    if (!ac->closing && st->queued_frames != 0) {
         st->state = NGX_ANYTLS_STREAM_CLOSING;
         ngx_anytls_resolver_cancel(st);
 
@@ -108,17 +108,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
             st->udp = NULL;
         }
 
-        p = st->pending_in;
-        while (p) {
-            n = p->next;
-            if (p->data) {
-                ngx_free(p->data);
-            }
-            p = n;
-        }
-        st->pending_in = NULL;
-        st->pending_in_last = &st->pending_in;
-        st->pending_in_bytes = 0;
+        ngx_anytls_upstream_discard_pending(st);
         ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
         return;
     }
@@ -134,6 +124,19 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
             ac->pending_output -= f->length;
         } else {
             ac->pending_output = 0;
+        }
+        if (ac->frames) {
+            ac->frames--;
+        }
+        if (st->queued_frames) {
+            st->queued_frames--;
+        }
+        if (f->own_payload && f->payload_buf.start) {
+            ngx_free(f->payload_buf.start);
+        }
+        if (f->recycle_payload && f->payload) {
+            ngx_anytls_upstream_free_read_buf(st, f->payload);
+            f->payload = NULL;
         }
     }
     st->out = NULL;
@@ -154,15 +157,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     st->uot_pending_count = 0;
     st->uot_pending_bytes = 0;
 
-    p = st->pending_in;
-    while (p) {
-        n = p->next;
-        if (p->data) {
-            ngx_free(p->data);
-        }
-        p = n;
-    }
-    st->pending_in_bytes = 0;
+    ngx_anytls_upstream_discard_pending(st);
 
     ngx_rbtree_delete(&ac->streams, &st->node);
     ngx_queue_remove(&st->link);

@@ -9,6 +9,8 @@ ngx_int_t ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac,
     u_char *data, size_t len);
 ngx_int_t ngx_anytls_handle_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_frame_t *frame);
+ngx_int_t ngx_anytls_pause_input(ngx_anytls_connection_t *ac);
+ngx_int_t ngx_anytls_resume_input(ngx_anytls_connection_t *ac);
 void ngx_anytls_close_if_idle(ngx_anytls_connection_t *ac);
 
 #endif

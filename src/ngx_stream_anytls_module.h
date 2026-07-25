@@ -18,8 +18,16 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_DEFAULT_BUF_SIZE    32768
 #define NGX_ANYTLS_DEFAULT_MAX_STREAMS 1024
 #define NGX_ANYTLS_DEFAULT_MAX_PENDING (8 * 1024 * 1024)
+#define NGX_ANYTLS_DEFAULT_MAX_PENDING_INPUT (8 * 1024 * 1024)
 #define NGX_ANYTLS_DEFAULT_UOT_PENDING_PACKETS 256
 #define NGX_ANYTLS_DEFAULT_UOT_PENDING_BYTES (512 * 1024)
+#define NGX_ANYTLS_MAX_OUT_FRAMES      10000
+#define NGX_ANYTLS_MAX_STREAM_FRAMES   1024
+#define NGX_ANYTLS_MAX_FREE_FRAMES     1024
+#define NGX_ANYTLS_MAX_FREE_READ_BUFS  32
+#define NGX_ANYTLS_MAX_FREE_PENDING_IN 64
+#define NGX_ANYTLS_MIN_SCHEDULE_FRAMES 16
+#define NGX_ANYTLS_MAX_SCHEDULE_BYTES  (1024 * 1024)
 #define NGX_ANYTLS_DEFAULT_PADDING                                           \
     "stop=8\n"                                                              \
     "0=30-30\n"                                                            \
@@ -135,9 +143,14 @@ struct ngx_anytls_stream_s {
     ngx_anytls_out_frame_t  *out;
     ngx_anytls_out_frame_t **out_last;
     size_t                   pending_out;
+    ngx_uint_t               queued_frames;
+    ngx_uint_t               free_read_bufs_count;
+    ngx_uint_t               free_pending_in_count;
     unsigned                 queued:1;
     unsigned                 in_closed:1;
     unsigned                 out_closed:1;
+    unsigned                 fin_queued:1;
+    unsigned                 fin_sent:1;
     unsigned                 synack_sent:1;
     unsigned                 first_psh_seen:1;
     unsigned                 upstream_read_blocked:1;
@@ -162,6 +175,8 @@ struct ngx_anytls_stream_s {
     u_char                  *uot_recv_buf;
     size_t                   uot_recv_len;
     size_t                   uot_recv_size;
+    ngx_msec_t               uot_drop_log_time;
+    ngx_uint_t               uot_drop_count;
     unsigned                 uot_request_parsed:1;
 };
 
@@ -179,6 +194,7 @@ typedef struct {
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
     size_t                   max_pending_output;
+    size_t                   max_pending_input;
     ngx_resolver_t          *resolver;
     ngx_msec_t               resolver_timeout;
     ngx_uint_t               uot_pending_packets;
@@ -204,8 +220,11 @@ struct ngx_anytls_connection_s {
     ngx_anytls_out_frame_t  *sending;
     ngx_anytls_out_frame_t **sending_last;
     ngx_anytls_out_frame_t  *free_frames;
+    ngx_uint_t               free_frames_count;
+    ngx_uint_t               frames;
     ngx_chain_t             *unsent;
     size_t                   pending_output;
+    size_t                   pending_input;
 
     u_char                  *read_buf;
     size_t                   read_buf_size;
@@ -223,6 +242,7 @@ struct ngx_anytls_connection_s {
     unsigned                 settings_received:1;
     unsigned                 client_eof:1;
     unsigned                 client_read_blocked:1;
+    unsigned                 input_paused:1;
     unsigned                 write_pending:1;
     unsigned                 closing:1;
 

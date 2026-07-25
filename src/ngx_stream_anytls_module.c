@@ -85,6 +85,13 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
       offsetof(ngx_stream_anytls_srv_conf_t, max_pending_output),
       NULL },
 
+    { ngx_string("anytls_max_pending_input"),
+      NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_stream_anytls_size_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_stream_anytls_srv_conf_t, max_pending_input),
+      NULL },
+
     { ngx_string("anytls_uot_pending_packets"),
       NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_anytls_num_slot,
@@ -142,6 +149,7 @@ ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf)
     conf->buffer_size = NGX_CONF_UNSET_SIZE;
     conf->max_streams = NGX_CONF_UNSET_UINT;
     conf->max_pending_output = NGX_CONF_UNSET_SIZE;
+    conf->max_pending_input = NGX_CONF_UNSET_SIZE;
     conf->resolver_timeout = NGX_CONF_UNSET_MSEC;
     conf->uot_pending_packets = NGX_CONF_UNSET_UINT;
     conf->uot_pending_bytes = NGX_CONF_UNSET_SIZE;
@@ -188,6 +196,9 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_size_value(conf->max_pending_output,
                               prev->max_pending_output,
                               NGX_ANYTLS_DEFAULT_MAX_PENDING);
+    ngx_conf_merge_size_value(conf->max_pending_input,
+                              prev->max_pending_input,
+                              NGX_ANYTLS_DEFAULT_MAX_PENDING_INPUT);
     ngx_conf_merge_msec_value(conf->resolver_timeout, prev->resolver_timeout,
                               30000);
     ngx_conf_merge_uint_value(conf->uot_pending_packets,

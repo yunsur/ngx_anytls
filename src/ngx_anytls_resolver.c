@@ -181,7 +181,7 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
             st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
             st->resolver_domain_len = 0;
             st->resolver_port = 0;
-            (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
+            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
                                           st->id, (u_char *) "resolve failed",
                                           sizeof("resolve failed") - 1);
         } else if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {

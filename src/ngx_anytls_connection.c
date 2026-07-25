@@ -18,6 +18,7 @@ static void ngx_anytls_fallback_read(ngx_anytls_connection_t *ac,
     ngx_connection_t *from, ngx_connection_t *to);
 static void ngx_anytls_fallback_write(ngx_anytls_connection_t *ac,
     ngx_connection_t *c);
+static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
 
 void
 ngx_anytls_connection_init(ngx_stream_session_t *s,
@@ -135,6 +136,10 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     used = 0;
 
     if (!ac->authenticated) {
+        if (data == NULL) {
+            return NGX_ERROR;
+        }
+
         rc = ngx_anytls_process_auth(ac, data, len, &consumed);
         data += consumed;
         len -= consumed;
@@ -177,6 +182,10 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             return rc;
         }
         ac->in_pos += consumed;
+
+        if (ac->input_paused) {
+            break;
+        }
     }
 
     if (ac->in_pos == ac->in_last) {
@@ -186,6 +195,83 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
 
     (void) used;
     return NGX_OK;
+}
+
+ngx_int_t
+ngx_anytls_pause_input(ngx_anytls_connection_t *ac)
+{
+    ngx_event_t *rev;
+
+    ac->input_paused = 1;
+
+    if (ac->client == NULL || ac->client_read_blocked) {
+        return NGX_OK;
+    }
+
+    rev = ac->client->read;
+    ac->client_read_blocked = 1;
+    rev->ready = 0;
+
+    if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac)
+{
+    ngx_event_t *rev;
+
+    if (ac->client == NULL) {
+        return NGX_OK;
+    }
+
+    ac->client_read_blocked = 0;
+    rev = ac->client->read;
+
+    if (ngx_handle_read_event(rev, 0) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    if (!rev->ready) {
+        rev->ready = 1;
+    }
+    ngx_post_event(rev, &ngx_posted_events);
+
+    return NGX_OK;
+}
+
+ngx_int_t
+ngx_anytls_resume_input(ngx_anytls_connection_t *ac)
+{
+    size_t lowat;
+    ngx_int_t rc;
+
+    if (ac == NULL || ac->client == NULL || ac->closing) {
+        return NGX_OK;
+    }
+
+    lowat = ac->conf->max_pending_input / 2;
+    if (ac->pending_input > lowat) {
+        return NGX_OK;
+    }
+
+    ac->input_paused = 0;
+
+    if (ac->in_pos != ac->in_last) {
+        rc = ngx_anytls_process_client_bytes(ac, NULL, 0);
+        if (rc != NGX_OK) {
+            return rc;
+        }
+
+        if (ac->input_paused) {
+            return NGX_OK;
+        }
+    }
+
+    return ngx_anytls_enable_client_read(ac);
 }
 
 ngx_int_t
@@ -306,6 +392,11 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
                 {
                     return NGX_ERROR;
                 }
+                if (st->state == NGX_ANYTLS_STREAM_CLOSING
+                    || st->state == NGX_ANYTLS_STREAM_CLOSED)
+                {
+                    return NGX_OK;
+                }
             }
             return ngx_anytls_upstream_open(st, &addr);
         }
@@ -351,6 +442,13 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     if (ac->state == NGX_ANYTLS_CONN_FALLBACK) {
         peer = (c == ac->client) ? ac->fallback : ac->client;
         ngx_anytls_fallback_read(ac, c, peer);
+        return;
+    }
+
+    if (ac->input_paused) {
+        if (ngx_anytls_resume_input(ac) != NGX_OK) {
+            ngx_anytls_finalize(ac);
+        }
         return;
     }
 

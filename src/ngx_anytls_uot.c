@@ -179,6 +179,23 @@ ngx_anytls_uot_clear_pending(ngx_anytls_stream_t *st)
     st->uot_pending_bytes = 0;
 }
 
+static void
+ngx_anytls_uot_log_output_drop(ngx_anytls_stream_t *st)
+{
+    ngx_msec_t now;
+
+    st->uot_drop_count++;
+    now = ngx_current_msec;
+
+    if (st->uot_drop_log_time == 0 || now - st->uot_drop_log_time >= 1000) {
+        ngx_log_error(NGX_LOG_WARN, st->ac->log, 0,
+                      "anytls: UoT output full, dropped %ui packet(s)",
+                      st->uot_drop_count);
+        st->uot_drop_log_time = now;
+        st->uot_drop_count = 0;
+    }
+}
+
 static ngx_int_t
 ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
 {
@@ -444,7 +461,7 @@ ngx_anytls_uot_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
     st->uot_request_parsed = (addr->mode != NGX_ANYTLS_ADDR_UOT_V2_CONNECT);
 
     st->synack_sent = 1;
-    return ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
+    return ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
                                   st->id, NULL, 0);
 }
 
@@ -663,11 +680,15 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             pkt[0] = (u_char) ((size_t) n >> 8);
             pkt[1] = (u_char) n;
             ngx_memcpy(pkt + 2, buf, (size_t) n);
-            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                          st->id, pkt, (size_t) n + 2);
-            ngx_anytls_upstream_state_add_bytes_received(st->ac->session,
-                                                         &st->upstream_state,
-                                                         n);
+            if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
+                                       st->id, pkt, (size_t) n + 2) != NGX_OK)
+            {
+                ngx_anytls_uot_log_output_drop(st);
+            } else {
+                ngx_anytls_upstream_state_add_bytes_received(st->ac->session,
+                                                             &st->upstream_state,
+                                                             n);
+            }
         } else if (from.ss_family == AF_INET) {
             if (n > 65527) {
                 continue;
@@ -682,8 +703,12 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             *p++ = (u_char) ((size_t) n >> 8);
             *p++ = (u_char) n;
             p = ngx_cpymem(p, buf, (size_t) n);
-            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                          st->id, pkt, (size_t) (p - pkt));
+            if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
+                                       st->id, pkt, (size_t) (p - pkt))
+                != NGX_OK)
+            {
+                ngx_anytls_uot_log_output_drop(st);
+            }
         } else if (from.ss_family == AF_INET6) {
             if (n > 65515) {
                 continue;
@@ -697,8 +722,12 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             *p++ = (u_char) ((size_t) n >> 8);
             *p++ = (u_char) n;
             p = ngx_cpymem(p, buf, (size_t) n);
-            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                          st->id, pkt, (size_t) (p - pkt));
+            if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
+                                       st->id, pkt, (size_t) (p - pkt))
+                != NGX_OK)
+            {
+                ngx_anytls_uot_log_output_drop(st);
+            }
         }
     }
 }

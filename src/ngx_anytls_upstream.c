@@ -3,6 +3,7 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_upstream.h"
+#include "ngx_anytls_connection.h"
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
@@ -43,64 +44,31 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
 }
 
 
-static ngx_int_t
-ngx_anytls_resume_client_read(ngx_anytls_connection_t *ac)
+void
+ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
 {
-    ngx_queue_t *q;
-    ngx_anytls_stream_t *st;
-    ngx_event_t *rev;
-    size_t lowat;
+    ngx_anytls_pending_t *p, *n;
 
-    if (!ac->client_read_blocked || ac->client == NULL) {
-        return NGX_OK;
-    }
-
-    lowat = ac->conf->max_pending_output / 2;
-
-    for (q = ngx_queue_head(&ac->stream_list);
-         q != ngx_queue_sentinel(&ac->stream_list);
-         q = ngx_queue_next(q))
-    {
-        st = ngx_queue_data(q, ngx_anytls_stream_t, link);
-        if (st->pending_in_bytes > lowat) {
-            return NGX_OK;
+    p = st->pending_in;
+    while (p) {
+        n = p->next;
+        if (p->data) {
+            ngx_free(p->data);
         }
+        p = n;
     }
 
-    ac->client_read_blocked = 0;
-    rev = ac->client->read;
-
-    if (ngx_handle_read_event(rev, 0) != NGX_OK) {
-        return NGX_ERROR;
+    if (st->ac->pending_input >= st->pending_in_bytes) {
+        st->ac->pending_input -= st->pending_in_bytes;
+    } else {
+        st->ac->pending_input = 0;
     }
 
-    if (!rev->ready) {
-        rev->ready = 1;
-    }
-    ngx_post_event(rev, &ngx_posted_events);
+    st->pending_in = NULL;
+    st->pending_in_last = &st->pending_in;
+    st->pending_in_bytes = 0;
 
-    return NGX_OK;
-}
-
-
-static ngx_int_t
-ngx_anytls_block_client_read(ngx_anytls_connection_t *ac)
-{
-    ngx_event_t *rev;
-
-    if (ac->client == NULL || ac->client_read_blocked) {
-        return NGX_OK;
-    }
-
-    rev = ac->client->read;
-    ac->client_read_blocked = 1;
-    rev->ready = 0;
-
-    if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-    return NGX_OK;
+    (void) ngx_anytls_resume_input(st->ac);
 }
 
 
@@ -115,8 +83,12 @@ ngx_anytls_upstream_free_pending(ngx_anytls_stream_t *st,
     p->data = NULL;
     p->len = 0;
     p->sent = 0;
-    p->next = st->free_pending_in;
-    st->free_pending_in = p;
+
+    if (st->free_pending_in_count < NGX_ANYTLS_MAX_FREE_PENDING_IN) {
+        p->next = st->free_pending_in;
+        st->free_pending_in = p;
+        st->free_pending_in_count++;
+    }
 }
 
 
@@ -129,6 +101,7 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_stream_t *st, size_t size)
     cl = st->free_read_bufs;
     if (cl) {
         st->free_read_bufs = cl->next;
+        st->free_read_bufs_count--;
         cl->next = NULL;
 
         b = cl->buf;
@@ -172,10 +145,13 @@ ngx_anytls_upstream_free_read_buf(ngx_anytls_stream_t *st, ngx_chain_t *cl)
         return;
     }
 
-    cl->buf->pos = cl->buf->start;
-    cl->buf->last = cl->buf->start;
-    cl->next = st->free_read_bufs;
-    st->free_read_bufs = cl;
+    if (st->free_read_bufs_count < NGX_ANYTLS_MAX_FREE_READ_BUFS) {
+        cl->buf->pos = cl->buf->start;
+        cl->buf->last = cl->buf->start;
+        cl->next = st->free_read_bufs;
+        st->free_read_bufs = cl;
+        st->free_read_bufs_count++;
+    }
 }
 
 
@@ -259,7 +235,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     if (rc == NGX_OK) {
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
         st->synack_sent = 1;
-        (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
+        (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
                                       st->id, NULL, 0);
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             return NGX_ERROR;
@@ -316,6 +292,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
     p = st->free_pending_in;
     if (p) {
         st->free_pending_in = p->next;
+        st->free_pending_in_count--;
         ngx_memzero(p, sizeof(ngx_anytls_pending_t));
     } else {
         p = ngx_pcalloc(st->pool, sizeof(ngx_anytls_pending_t));
@@ -337,15 +314,28 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
     *st->pending_in_last = p;
     st->pending_in_last = &p->next;
     st->pending_in_bytes += len;
-
-    if (st->pending_in_bytes > st->ac->conf->max_pending_output) {
-        if (ngx_anytls_block_client_read(st->ac) != NGX_OK) {
-            return NGX_ERROR;
-        }
-    }
+    st->ac->pending_input += len;
 
     if (st->upstream && st->upstream->write) {
         ngx_post_event(st->upstream->write, &ngx_posted_events);
+    }
+
+    if (st->pending_in_bytes > st->ac->conf->max_pending_input) {
+        ngx_log_debug2(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
+                       "anytls: stream %ui input queue reached %uz bytes, "
+                       "pausing input", (ngx_uint_t) st->id,
+                       st->ac->conf->max_pending_input);
+
+        if (ngx_anytls_pause_input(st->ac) != NGX_OK) {
+            return NGX_ERROR;
+        }
+        return NGX_OK;
+    }
+
+    if (st->ac->pending_input > st->ac->conf->max_pending_input) {
+        if (ngx_anytls_pause_input(st->ac) != NGX_OK) {
+            return NGX_ERROR;
+        }
     }
 
     return NGX_OK;
@@ -384,13 +374,18 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
         } else {
             st->pending_in_bytes = 0;
         }
+        if (st->ac->pending_input >= p->len) {
+            st->ac->pending_input -= p->len;
+        } else {
+            st->ac->pending_input = 0;
+        }
         if (st->pending_in == NULL) {
             st->pending_in_last = &st->pending_in;
         }
         ngx_anytls_upstream_free_pending(st, p);
     }
 
-    return ngx_anytls_resume_client_read(st->ac);
+    return ngx_anytls_resume_input(st->ac);
 }
 
 void
@@ -404,7 +399,7 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
 
     if (st->state == NGX_ANYTLS_STREAM_CONNECTING) {
         if (ngx_anytls_test_connect(c) != NGX_OK) {
-            (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
+            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
                                           st->id, (u_char *) "connect failed",
                                           sizeof("connect failed") - 1);
             ngx_anytls_stream_close(st);
@@ -412,7 +407,7 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
         }
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
         st->synack_sent = 1;
-        (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
+        (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
                                       st->id, NULL, 0);
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             ngx_anytls_stream_close(st);
@@ -464,9 +459,10 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
         }
         if (n == 0) {
             ngx_anytls_upstream_free_read_buf(st, cl);
-            st->out_closed = 1;
-            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
-                                          st->id, NULL, 0);
+            if (!st->fin_queued) {
+                (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
+                                              st->id, NULL, 0);
+            }
             ngx_close_connection(c);
             st->upstream = NULL;
             if (st->in_closed) {
