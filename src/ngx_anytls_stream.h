@@ -7,6 +7,9 @@ ngx_anytls_stream_t *ngx_anytls_stream_create(ngx_anytls_connection_t *ac,
     uint32_t id);
 ngx_anytls_stream_t *ngx_anytls_stream_find(ngx_anytls_connection_t *ac,
     uint32_t id);
+ngx_uint_t ngx_anytls_stream_exists(ngx_anytls_connection_t *ac, uint32_t id);
+void ngx_anytls_stream_mark_closed_by_protocol(ngx_anytls_stream_t *st);
+ngx_int_t ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_close(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st);

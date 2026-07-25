@@ -496,13 +496,10 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
         }
         if (n == 0) {
             ngx_anytls_upstream_free_read_buf(st, cl);
-            if (!st->fin_queued) {
-                (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
-                                              st->id, NULL, 0);
-            }
             ngx_close_connection(c);
             st->upstream = NULL;
-            if (st->in_closed) {
+
+            if (ngx_anytls_stream_send_fin_and_close(st) != NGX_OK) {
                 ngx_anytls_stream_close(st);
             }
             return;

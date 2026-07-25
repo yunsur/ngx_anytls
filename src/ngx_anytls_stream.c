@@ -2,13 +2,14 @@
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
+#include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_state.h"
 
-ngx_anytls_stream_t *
-ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
+static ngx_anytls_stream_t *
+ngx_anytls_stream_find_raw(ngx_anytls_connection_t *ac, uint32_t id)
 {
     ngx_rbtree_node_t *node, *sentinel;
 
@@ -26,12 +27,33 @@ ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
 }
 
 ngx_anytls_stream_t *
+ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
+{
+    ngx_anytls_stream_t *st;
+
+    st = ngx_anytls_stream_find_raw(ac, id);
+    if (st == NULL || st->closed_by_protocol) {
+        return NULL;
+    }
+
+    return st;
+}
+
+ngx_uint_t
+ngx_anytls_stream_exists(ngx_anytls_connection_t *ac, uint32_t id)
+{
+    return ngx_anytls_stream_find_raw(ac, id) != NULL;
+}
+
+ngx_anytls_stream_t *
 ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
 {
     ngx_pool_t *pool;
     ngx_anytls_stream_t *st;
 
-    if (ac->active_streams >= ac->conf->max_streams) {
+    if (ac->active_streams >= ac->conf->max_streams
+        || ngx_anytls_stream_find_raw(ac, id) != NULL)
+    {
         return NULL;
     }
 
@@ -65,6 +87,46 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
 }
 
 void
+ngx_anytls_stream_mark_closed_by_protocol(ngx_anytls_stream_t *st)
+{
+    if (st == NULL || st->closed_by_protocol) {
+        return;
+    }
+
+    st->closed_by_protocol = 1;
+    st->in_closed = 1;
+
+    ngx_log_debug1(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
+                   "anytls: stream %ui logically closed by protocol",
+                   (ngx_uint_t) st->id);
+}
+
+ngx_int_t
+ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st)
+{
+    ngx_int_t rc;
+
+    if (st == NULL) {
+        return NGX_OK;
+    }
+
+    ngx_anytls_stream_mark_closed_by_protocol(st);
+    st->out_closed = 1;
+
+    if (!st->fin_queued && !st->fin_sent) {
+        rc = ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
+                                    st->id, NULL, 0);
+        if (rc != NGX_OK) {
+            return rc;
+        }
+    }
+
+    ngx_anytls_stream_close(st);
+
+    return NGX_OK;
+}
+
+void
 ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st)
 {
     if (!st->queued) {
@@ -94,6 +156,8 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     }
 
     ac = st->ac;
+
+    ngx_anytls_stream_mark_closed_by_protocol(st);
 
     if (!ac->closing && st->queued_frames != 0) {
         st->state = NGX_ANYTLS_STREAM_CLOSING;

@@ -21,6 +21,9 @@ static void ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac);
 static ngx_uint_t ngx_anytls_frame_sent(ngx_anytls_out_frame_t *f);
 static void ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac);
 static void ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac);
+static void ngx_anytls_write_timeout_handler(ngx_event_t *ev);
+static void ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac);
+static void ngx_anytls_disarm_write_timer(ngx_anytls_connection_t *ac);
 
 
 static ngx_anytls_out_frame_t *
@@ -450,6 +453,53 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
 }
 
 
+static void
+ngx_anytls_write_timeout_handler(ngx_event_t *ev)
+{
+    ngx_anytls_connection_t *ac;
+
+    ac = ev->data;
+    if (ac == NULL || ac->closing) {
+        return;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, ac->log, 0,
+                  "anytls: control write timeout");
+    ngx_anytls_finalize(ac);
+}
+
+
+static void
+ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac)
+{
+    ngx_event_t *ev;
+
+    if (ac == NULL || ac->closing || ac->client == NULL) {
+        return;
+    }
+
+    ev = &ac->write_timer;
+    if (ev->handler == NULL) {
+        ev->handler = ngx_anytls_write_timeout_handler;
+        ev->data = ac;
+        ev->log = ac->log;
+    }
+
+    if (!ev->timer_set) {
+        ngx_add_timer(ev, NGX_ANYTLS_CONTROL_WRITE_TIMEOUT);
+    }
+}
+
+
+static void
+ngx_anytls_disarm_write_timer(ngx_anytls_connection_t *ac)
+{
+    if (ac && ac->write_timer.timer_set) {
+        ngx_del_timer(&ac->write_timer);
+    }
+}
+
+
 void
 ngx_anytls_post_write(ngx_anytls_connection_t *ac)
 {
@@ -458,6 +508,7 @@ ngx_anytls_post_write(ngx_anytls_connection_t *ac)
     c = ac->client;
     if (!ac->write_pending && c && c->write) {
         ac->write_pending = 1;
+        ngx_anytls_arm_write_timer(ac);
         ngx_post_event(c->write, &ngx_posted_events);
     }
 }
@@ -497,6 +548,7 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
     }
 
     if (ac->unsent == NULL) {
+        ngx_anytls_disarm_write_timer(ac);
         return NGX_OK;
     }
 
@@ -513,11 +565,14 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
     }
 
     if (ac->unsent != NULL) {
+        ngx_anytls_arm_write_timer(ac);
         return NGX_AGAIN;
     }
 
     if (ac->last_out != NULL || !ngx_queue_empty(&ac->ready_streams)) {
         ngx_anytls_post_write(ac);
+    } else {
+        ngx_anytls_disarm_write_timer(ac);
     }
 
     return NGX_OK;

@@ -357,7 +357,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             (void) ngx_anytls_flush(ac);
             return NGX_ERROR;
         }
-        if (ngx_anytls_stream_find(ac, frame->stream_id) != NULL) {
+        if (ngx_anytls_stream_exists(ac, frame->stream_id)) {
             return NGX_OK;
         }
         st = ngx_anytls_stream_create(ac, frame->stream_id);
@@ -378,31 +378,26 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
     case NGX_ANYTLS_CMD_FIN:
         st = ngx_anytls_stream_find(ac, frame->stream_id);
         if (st) {
-            st->in_closed = 1;
+            ngx_anytls_stream_mark_closed_by_protocol(st);
 
             if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
                 ngx_anytls_uot_close(st);
-                ngx_anytls_stream_close(st);
 
             } else if (st->upstream) {
                 ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
-
-                if (st->out_closed) {
-                    ngx_anytls_stream_close(st);
-                }
-
-            } else if (st->out_closed) {
-                ngx_anytls_stream_close(st);
             }
+
+            ngx_anytls_stream_close(st);
         }
         return NGX_OK;
 
     case NGX_ANYTLS_CMD_ALERT:
-        if (frame->data_len) {
-            ngx_log_error(NGX_LOG_INFO, ac->log, 0,
-                          "anytls: alert from client: \"%*s\"",
-                          (int) frame->data_len, frame->data);
+        if (frame->data_len == 0) {
+            return NGX_OK;
         }
+        ngx_log_error(NGX_LOG_INFO, ac->log, 0,
+                      "anytls: alert from client: \"%*s\"",
+                      (int) frame->data_len, frame->data);
         return NGX_DONE;
 
     case NGX_ANYTLS_CMD_SYNACK:
@@ -682,6 +677,9 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
 
     ac->closing = 1;
     ngx_anytls_upstream_state_finalize(ac->session, &ac->fallback_state);
+    if (ac->write_timer.timer_set) {
+        ngx_del_timer(&ac->write_timer);
+    }
 
     for (q = ngx_queue_head(&ac->stream_list);
          q != ngx_queue_sentinel(&ac->stream_list);
@@ -689,6 +687,7 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
     {
         next = ngx_queue_next(q);
         st = ngx_queue_data(q, ngx_anytls_stream_t, link);
+        ngx_anytls_stream_mark_closed_by_protocol(st);
         ngx_anytls_stream_close(st);
     }
 

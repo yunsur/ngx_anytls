@@ -28,6 +28,7 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_MAX_FREE_PENDING_IN 64
 #define NGX_ANYTLS_MIN_SCHEDULE_FRAMES 16
 #define NGX_ANYTLS_MAX_SCHEDULE_BYTES  (1024 * 1024)
+#define NGX_ANYTLS_CONTROL_WRITE_TIMEOUT 5000
 #define NGX_ANYTLS_DEFAULT_PADDING                                           \
     "stop=8\n"                                                              \
     "0=30-30\n"                                                            \
@@ -157,6 +158,7 @@ struct ngx_anytls_stream_s {
     unsigned                 input_exhausted:1;
     unsigned                 upstream_read_blocked:1;
     unsigned                 delayed_close:1;
+    unsigned                 closed_by_protocol:1;
 
     ngx_anytls_addr_t        target;
     u_char                  *initial_data;
@@ -225,6 +227,7 @@ struct ngx_anytls_connection_s {
     ngx_anytls_out_frame_t  *free_frames;
     ngx_uint_t               free_frames_count;
     ngx_uint_t               frames;
+    ngx_event_t              write_timer;
     ngx_chain_t             *unsent;
     size_t                   pending_output;
     size_t                   pending_input;
