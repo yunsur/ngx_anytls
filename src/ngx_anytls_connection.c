@@ -25,6 +25,7 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
 {
     ngx_connection_t *c;
     ngx_anytls_connection_t *ac;
+    size_t read_size;
 
     c = s->connection;
     ac = ngx_pcalloc(c->pool, sizeof(ngx_anytls_connection_t));
@@ -40,14 +41,30 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ac->conf = conf;
     ac->state = NGX_ANYTLS_CONN_AUTH;
     ac->peer_version = 1;
-    ac->in_size = conf->buffer_size + NGX_ANYTLS_FRAME_HEADER_LEN;
+    read_size = ngx_min(conf->buffer_size,
+                        NGX_ANYTLS_FRAME_HEADER_LEN
+                        + NGX_ANYTLS_MAX_FRAME_DATA);
+    ac->read_buf_size = read_size;
+    ac->in_size = read_size + NGX_ANYTLS_FRAME_HEADER_LEN
+                  + NGX_ANYTLS_MAX_FRAME_DATA;
     ac->in = ngx_pnalloc(c->pool, ac->in_size);
     if (ac->in == NULL) {
         ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
+    ac->read_buf = ngx_pnalloc(c->pool, ac->read_buf_size);
+    if (ac->read_buf == NULL) {
+        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+        return;
+    }
+    ac->out_pool = ngx_create_pool(4096, c->log);
+    if (ac->out_pool == NULL) {
+        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+        return;
+    }
     ac->in_pos = ac->in;
     ac->in_last = ac->in;
+    ac->last_out_last = &ac->last_out;
 
     ngx_rbtree_init(&ac->streams, &ac->sentinel, ngx_rbtree_insert_value);
     ngx_queue_init(&ac->stream_list);
@@ -341,14 +358,10 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
         return;
     }
 
-    buf = ngx_pnalloc(ac->pool, ac->conf->buffer_size);
-    if (buf == NULL) {
-        ngx_anytls_finalize(ac);
-        return;
-    }
+    buf = ac->read_buf;
 
     for ( ;; ) {
-        n = c->recv(c, buf, ac->conf->buffer_size);
+        n = c->recv(c, buf, ac->read_buf_size);
         if (n == NGX_AGAIN) {
             break;
         }
@@ -518,6 +531,11 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
     if (ac->fallback) {
         ngx_close_connection(ac->fallback);
         ac->fallback = NULL;
+    }
+
+    if (ac->out_pool) {
+        ngx_destroy_pool(ac->out_pool);
+        ac->out_pool = NULL;
     }
 
     ngx_stream_finalize_session(ac->session, NGX_STREAM_OK);

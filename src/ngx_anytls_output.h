@@ -8,5 +8,6 @@ ngx_int_t ngx_anytls_queue_frame(ngx_anytls_connection_t *ac,
     u_char *data, size_t len);
 ngx_int_t ngx_anytls_flush(ngx_anytls_connection_t *ac);
 void ngx_anytls_post_write(ngx_anytls_connection_t *ac);
+ngx_uint_t ngx_anytls_output_has_room(ngx_anytls_connection_t *ac, size_t len);
 
 #endif

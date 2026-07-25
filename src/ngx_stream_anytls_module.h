@@ -115,6 +115,8 @@ struct ngx_anytls_stream_s {
     ngx_connection_t        *upstream;
     ngx_str_t                upstream_name;
     ngx_anytls_upstream_state_tracker_t upstream_state;
+    u_char                  *read_buf;
+    size_t                   read_buf_size;
     ngx_anytls_pending_t    *pending_in;
     ngx_anytls_pending_t   **pending_in_last;
 
@@ -126,6 +128,7 @@ struct ngx_anytls_stream_s {
     unsigned                 out_closed:1;
     unsigned                 synack_sent:1;
     unsigned                 first_psh_seen:1;
+    unsigned                 upstream_read_blocked:1;
 
     ngx_anytls_addr_t        target;
     u_char                  *initial_data;
@@ -185,9 +188,14 @@ struct ngx_anytls_connection_s {
     ngx_uint_t               active_streams;
 
     ngx_anytls_out_frame_t  *last_out;
+    ngx_anytls_out_frame_t **last_out_last;
     ngx_chain_t             *unsent;
+    size_t                   unsent_length;
     size_t                   pending_output;
+    ngx_pool_t              *out_pool;
 
+    u_char                  *read_buf;
+    size_t                   read_buf_size;
     u_char                  *in;
     u_char                  *in_pos;
     u_char                  *in_last;

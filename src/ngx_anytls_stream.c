@@ -87,6 +87,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 {
     ngx_anytls_pending_t *p, *n;
     ngx_anytls_connection_t *ac;
+    ngx_anytls_out_frame_t *f, *next;
 
     if (st == NULL || st->state == NGX_ANYTLS_STREAM_CLOSED) {
         return;
@@ -97,6 +98,18 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     ngx_anytls_stream_remove_ready(st);
     ngx_anytls_resolver_cancel(st);
     ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
+
+    for (f = st->out; f; f = next) {
+        next = f->next;
+        if (ac->pending_output >= f->length) {
+            ac->pending_output -= f->length;
+        } else {
+            ac->pending_output = 0;
+        }
+    }
+    st->out = NULL;
+    st->out_last = &st->out;
+    st->pending_out = 0;
 
     if (st->upstream) {
         ngx_close_connection(st->upstream);

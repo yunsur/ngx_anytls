@@ -28,6 +28,21 @@ ngx_anytls_test_connect(ngx_connection_t *c)
     return NGX_OK;
 }
 
+
+static ngx_int_t
+ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
+{
+    st->upstream_read_blocked = 1;
+    rev->ready = 0;
+
+    if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
 ngx_int_t
 ngx_anytls_upstream_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
@@ -231,17 +246,32 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
     u_char *buf;
     ssize_t n;
     size_t size;
+    ngx_int_t rc;
 
     c = rev->data;
     st = c->data;
     size = st->ac->conf->buffer_size;
-    buf = ngx_pnalloc(st->pool, size);
-    if (buf == NULL) {
-        ngx_anytls_stream_close(st);
-        return;
+    if (size > NGX_ANYTLS_MAX_FRAME_DATA) {
+        size = NGX_ANYTLS_MAX_FRAME_DATA;
     }
+    if (st->read_buf == NULL || st->read_buf_size < size) {
+        st->read_buf = ngx_pnalloc(st->pool, size);
+        if (st->read_buf == NULL) {
+            ngx_anytls_stream_close(st);
+            return;
+        }
+        st->read_buf_size = size;
+    }
+    buf = st->read_buf;
 
     for ( ;; ) {
+        if (!ngx_anytls_output_has_room(st->ac, size)) {
+            if (ngx_anytls_upstream_block_read(st, rev) != NGX_OK) {
+                ngx_anytls_stream_close(st);
+            }
+            return;
+        }
+
         n = c->recv(c, buf, size);
         if (n == NGX_AGAIN) {
             break;
@@ -250,7 +280,11 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
             st->out_closed = 1;
             (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
                                           st->id, NULL, 0);
-            ngx_anytls_stream_close(st);
+            ngx_close_connection(c);
+            st->upstream = NULL;
+            if (st->in_closed) {
+                ngx_anytls_stream_close(st);
+            }
             return;
         }
         if (n == NGX_ERROR) {
@@ -258,10 +292,17 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
             return;
         }
 
-        if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH, st->id,
-                                   buf, (size_t) n) != NGX_OK)
-        {
-            break;
+        rc = ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH, st->id,
+                                    buf, (size_t) n);
+        if (rc == NGX_AGAIN) {
+            if (ngx_anytls_upstream_block_read(st, rev) != NGX_OK) {
+                ngx_anytls_stream_close(st);
+            }
+            return;
+        }
+        if (rc != NGX_OK) {
+            ngx_anytls_stream_close(st);
+            return;
         }
 
         ngx_anytls_upstream_state_add_bytes_received(st->ac->session,
