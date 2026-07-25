@@ -56,6 +56,12 @@ typedef enum {
     NGX_ANYTLS_UPSTREAM_UOT
 } ngx_anytls_upstream_type_e;
 
+typedef enum {
+    NGX_ANYTLS_RESOLVE_NONE = 0,
+    NGX_ANYTLS_RESOLVE_TCP,
+    NGX_ANYTLS_RESOLVE_UOT_CONNECT
+} ngx_anytls_resolve_target_e;
+
 typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
 typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
 typedef struct ngx_anytls_out_frame_s ngx_anytls_out_frame_t;
@@ -115,6 +121,13 @@ struct ngx_anytls_stream_s {
     u_char                  *initial_data;
     size_t                   initial_data_len;
 
+    ngx_resolver_ctx_t      *resolver_ctx;
+    ngx_uint_t               resolver_pending;
+    ngx_anytls_resolve_target_e resolver_target;
+    u_char                   resolver_domain[256];
+    size_t                   resolver_domain_len;
+    uint16_t                 resolver_port;
+
     ngx_connection_t        *udp;
     ngx_uint_t               udp_family;
     ngx_event_t              udp_timer;
@@ -146,6 +159,8 @@ typedef struct {
     size_t                   max_pending_output;
     ngx_msec_t               dns_cache_ttl;
     ngx_uint_t               dns_cache_size;
+    ngx_resolver_t          *resolver;
+    ngx_msec_t               resolver_timeout;
     ngx_msec_t               uot_timeout;
     ngx_uint_t               uot_pending_packets;
     size_t                   uot_pending_bytes;

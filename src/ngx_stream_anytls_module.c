@@ -181,6 +181,7 @@ ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf)
     conf->max_pending_output = NGX_CONF_UNSET_SIZE;
     conf->dns_cache_ttl = NGX_CONF_UNSET_MSEC;
     conf->dns_cache_size = NGX_CONF_UNSET_UINT;
+    conf->resolver_timeout = NGX_CONF_UNSET_MSEC;
     conf->uot_timeout = NGX_CONF_UNSET_MSEC;
     conf->uot_pending_packets = NGX_CONF_UNSET_UINT;
     conf->uot_pending_bytes = NGX_CONF_UNSET_SIZE;
@@ -233,6 +234,8 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                               NGX_ANYTLS_DEFAULT_MAX_PENDING);
     ngx_conf_merge_msec_value(conf->dns_cache_ttl, prev->dns_cache_ttl, 60000);
     ngx_conf_merge_uint_value(conf->dns_cache_size, prev->dns_cache_size, 1024);
+    ngx_conf_merge_msec_value(conf->resolver_timeout, prev->resolver_timeout,
+                              30000);
     ngx_conf_merge_msec_value(conf->uot_timeout, prev->uot_timeout,
                               NGX_ANYTLS_DEFAULT_UOT_TIMEOUT);
     ngx_conf_merge_uint_value(conf->uot_pending_packets,
@@ -266,6 +269,14 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 
     if (conf->enabled) {
         cscf = ngx_stream_conf_get_module_srv_conf(cf, ngx_stream_core_module);
+        if (conf->resolver == NULL) {
+            conf->resolver = prev->resolver ? prev->resolver : cscf->resolver;
+        }
+        if (cscf->resolver_timeout != NGX_CONF_UNSET_MSEC
+            && conf->resolver_timeout == 30000)
+        {
+            conf->resolver_timeout = cscf->resolver_timeout;
+        }
         cscf->handler = ngx_stream_anytls_handler;
     }
 

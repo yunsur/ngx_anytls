@@ -4,6 +4,7 @@
 
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_output.h"
+#include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 
 static ngx_int_t
@@ -29,23 +30,56 @@ ngx_anytls_test_connect(ngx_connection_t *c)
 ngx_int_t
 ngx_anytls_upstream_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
-    ngx_url_t              url;
+    ngx_int_t              rc;
+
+    st->target = *addr;
+
+    rc = ngx_anytls_resolve_addr(st, NGX_ANYTLS_RESOLVE_TCP, &st->target);
+    if (rc == NGX_AGAIN) {
+        st->state = NGX_ANYTLS_STREAM_CONNECTING;
+        return NGX_OK;
+    }
+    if (rc != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, st->ac->log, 0,
+                      "anytls: resolve upstream target \"%V\" failed",
+                      &addr->host);
+        return NGX_ERROR;
+    }
+
+    return ngx_anytls_upstream_open_resolved(st);
+}
+
+ngx_int_t
+ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
+{
     ngx_peer_connection_t *pc;
     ngx_connection_t      *c;
     ngx_int_t              rc;
+    u_char                *p;
 
-    if (ngx_anytls_addr_to_url(st->pool, addr, &url) != NGX_OK) {
-        ngx_log_error(NGX_LOG_ERR, st->ac->log, 0,
-                      "anytls: invalid upstream target \"%V\"", &addr->host);
+    if (!st->target.has_sockaddr) {
         return NGX_ERROR;
+    }
+
+    st->upstream_name.data = ngx_pnalloc(st->pool, NGX_SOCKADDR_STRLEN);
+    if (st->upstream_name.data == NULL) {
+        return NGX_ERROR;
+    }
+    st->upstream_name.len = ngx_sock_ntop(
+        (struct sockaddr *) &st->target.sockaddr, st->target.socklen,
+        st->upstream_name.data, NGX_SOCKADDR_STRLEN, 1);
+    if (st->upstream_name.len == 0) {
+        p = ngx_snprintf(st->upstream_name.data, NGX_SOCKADDR_STRLEN,
+                         "%V:%ui", &st->target.host,
+                         (ngx_uint_t) st->target.port);
+        st->upstream_name.len = p - st->upstream_name.data;
     }
 
     pc = &st->peer;
     ngx_memzero(pc, sizeof(*pc));
-    pc->sockaddr = url.addrs[0].sockaddr;
-    pc->socklen = url.addrs[0].socklen;
-    pc->name = &url.addrs[0].name;
-    st->upstream_name = url.addrs[0].name;
+    pc->sockaddr = (struct sockaddr *) &st->target.sockaddr;
+    pc->socklen = st->target.socklen;
+    pc->name = &st->upstream_name;
     pc->get = ngx_event_get_peer;
     pc->log = st->ac->log;
     pc->log_error = NGX_ERROR_ERR;

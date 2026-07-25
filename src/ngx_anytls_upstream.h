@@ -5,6 +5,7 @@
 
 ngx_int_t ngx_anytls_upstream_open(ngx_anytls_stream_t *st,
     ngx_anytls_addr_t *addr);
+ngx_int_t ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data,
     size_t len);

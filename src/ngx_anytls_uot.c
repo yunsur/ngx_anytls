@@ -6,10 +6,11 @@
 
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_output.h"
+#include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 
 static ngx_int_t
-ngx_anytls_uot_resolve_addr(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
+ngx_anytls_uot_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
     ngx_url_t url;
 
@@ -29,6 +30,21 @@ ngx_anytls_uot_resolve_addr(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
     addr->has_sockaddr = 1;
 
     return NGX_OK;
+}
+
+static ngx_int_t
+ngx_anytls_uot_resolve_addr(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
+{
+    if (addr->has_sockaddr) {
+        return NGX_OK;
+    }
+
+    if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT && addr == &st->target) {
+        return ngx_anytls_resolve_addr(st, NGX_ANYTLS_RESOLVE_UOT_CONNECT,
+                                       addr);
+    }
+
+    return ngx_anytls_uot_resolve_sync(st, addr);
 }
 
 static ngx_int_t
@@ -167,6 +183,10 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
         return NGX_ERROR;
     }
 
+    if (st->resolver_pending) {
+        return NGX_OK;
+    }
+
     p = st->uot_recv_buf;
     left = st->uot_recv_len;
 
@@ -196,7 +216,17 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
     }
 
     if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
-        if (ngx_anytls_uot_resolve_addr(st, &st->target) != NGX_OK) {
+        rc = ngx_anytls_uot_resolve_addr(st, &st->target);
+        if (rc == NGX_AGAIN) {
+            consumed = st->uot_recv_len - left;
+            if (consumed && left) {
+                ngx_memmove(st->uot_recv_buf, st->uot_recv_buf + consumed,
+                            left);
+            }
+            st->uot_recv_len = left;
+            return NGX_OK;
+        }
+        if (rc != NGX_OK) {
             return NGX_ERROR;
         }
 
@@ -246,6 +276,18 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
     st->uot_recv_len = left;
 
     return NGX_OK;
+}
+
+ngx_int_t
+ngx_anytls_uot_resolved(ngx_anytls_stream_t *st)
+{
+    if (st->uot_mode != NGX_ANYTLS_ADDR_UOT_V2_CONNECT
+        || !st->target.has_sockaddr)
+    {
+        return NGX_ERROR;
+    }
+
+    return ngx_anytls_uot_client_payload(st, NULL, 0);
 }
 
 void

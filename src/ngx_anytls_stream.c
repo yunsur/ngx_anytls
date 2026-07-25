@@ -2,6 +2,7 @@
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
+#include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 
 ngx_anytls_stream_t *
@@ -93,6 +94,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     ac = st->ac;
     st->state = NGX_ANYTLS_STREAM_CLOSED;
     ngx_anytls_stream_remove_ready(st);
+    ngx_anytls_resolver_cancel(st);
 
     if (st->upstream) {
         ngx_close_connection(st->upstream);
