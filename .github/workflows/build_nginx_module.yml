@@ -1,0 +1,54 @@
+name: Build Nginx Module
+
+on:
+  workflow_dispatch:
+    inputs:
+      debian_version:
+        description: "Debian version (e.g. 12)"
+        required: true
+      nginx_version:
+        description: "Nginx version (e.g. 1.30.3)"
+        required: true
+      module_version:
+        description: "ngx_anytls version (e.g. 1.0.0)"
+        required: true
+
+jobs:
+  build:
+    name: Build Nginx Module
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        run: |
+          docker buildx build \
+            --file docker/Dockerfile \
+            --platform linux/amd64,linux/arm64 \
+            --tag nginx-module-builder:multiarch \
+            --build-arg DEBIAN_VERSION=${{ inputs.debian_version }} \
+            --build-arg NGINX_VERSION=${{ inputs.nginx_version }} \
+            --build-arg MODULE_VERSION=${{ inputs.module_version }} \
+            --output type=local,dest=./output \
+            .
+
+      - name: Flatten .deb Files
+        run: |
+          mkdir -p ./debs
+          find ./output -type f -name "*.deb" -exec cp {} ./debs/ \;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ inputs.module_version }}"
+          name: "Release v${{ inputs.module_version }}"
+          body: "Release v${{ inputs.module_version }}"
+          files: |
+            ./debs/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
