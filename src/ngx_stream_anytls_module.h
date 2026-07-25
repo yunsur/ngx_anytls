@@ -255,6 +255,8 @@ struct ngx_anytls_connection_s {
     ngx_peer_connection_t    fallback_peer;
     ngx_connection_t        *fallback;
     ngx_buf_t               *fallback_replay;
+    ngx_buf_t               *fallback_client_buf;
+    ngx_buf_t               *fallback_upstream_buf;
     ngx_anytls_upstream_state_tracker_t fallback_state;
 };
 

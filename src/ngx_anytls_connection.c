@@ -15,10 +15,6 @@ static ngx_int_t ngx_anytls_process_auth(ngx_anytls_connection_t *ac,
 static void ngx_anytls_send_http_400(ngx_anytls_connection_t *ac);
 static ngx_int_t ngx_anytls_handle_psh(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_anytls_frame_t *frame);
-static void ngx_anytls_fallback_read(ngx_anytls_connection_t *ac,
-    ngx_connection_t *from, ngx_connection_t *to);
-static void ngx_anytls_fallback_write(ngx_anytls_connection_t *ac,
-    ngx_connection_t *c);
 static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
 static ngx_uint_t ngx_anytls_input_blocked(ngx_anytls_connection_t *ac);
 
@@ -102,6 +98,15 @@ ngx_anytls_process_auth(ngx_anytls_connection_t *ac, u_char *data, size_t len,
         if (ac->conf->fallback == NULL) {
             ngx_anytls_send_http_400(ac);
             return NGX_ERROR;
+        }
+
+        /* Append any remaining bytes beyond the auth prefix so the
+         * fallback upstream receives the complete client data. */
+        if (len > 0) {
+            n = ngx_min(len, sizeof(ac->auth) - ac->auth_len);
+            ngx_memcpy(ac->auth + ac->auth_len, data, n);
+            ac->auth_len += n;
+            *consumed += n;
         }
 
         if (ngx_anytls_fallback_start(ac, ac->auth, ac->auth_len) != NGX_OK) {
@@ -573,6 +578,10 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
             return;
         }
 
+        if (ac->state == NGX_ANYTLS_CONN_FALLBACK) {
+            return;
+        }
+
         if (ac->client_read_blocked) {
             return;
         }
@@ -615,84 +624,6 @@ ngx_anytls_client_write_handler(ngx_event_t *wev)
     if (ngx_anytls_flush(ac) == NGX_ERROR) {
         ngx_anytls_finalize(ac);
     }
-}
-
-static void
-ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
-{
-    ssize_t n;
-    ngx_buf_t *b;
-
-    if (c != ac->fallback) {
-        return;
-    }
-
-    b = ac->fallback_replay;
-    while (b && b->pos < b->last) {
-        n = c->send(c, b->pos, (size_t) (b->last - b->pos));
-        if (n == NGX_AGAIN) {
-            (void) ngx_handle_write_event(c->write, 0);
-            return;
-        }
-        if (n == NGX_ERROR || n == 0) {
-            ngx_anytls_finalize(ac);
-            return;
-        }
-        b->pos += n;
-        ngx_anytls_upstream_state_add_bytes_sent(ac->session,
-                                                 &ac->fallback_state, n);
-    }
-
-    ac->fallback_replay = NULL;
-    if (ngx_handle_read_event(ac->client->read, 0) != NGX_OK
-        || ngx_handle_read_event(ac->fallback->read, 0) != NGX_OK)
-    {
-        ngx_anytls_finalize(ac);
-    }
-}
-
-static void
-ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
-    ngx_connection_t *to)
-{
-    u_char buf[16384];
-    ssize_t n, sent;
-
-    if (to == NULL) {
-        ngx_anytls_finalize(ac);
-        return;
-    }
-
-    for ( ;; ) {
-        n = from->recv(from, buf, sizeof(buf));
-        if (n == NGX_AGAIN) {
-            break;
-        }
-        if (n == 0 || n == NGX_ERROR) {
-            ngx_anytls_finalize(ac);
-            return;
-        }
-
-        sent = to->send(to, buf, (size_t) n);
-        if (sent == NGX_ERROR || sent == 0) {
-            ngx_anytls_finalize(ac);
-            return;
-        }
-        if (from == ac->client && to == ac->fallback) {
-            ngx_anytls_upstream_state_add_bytes_sent(ac->session,
-                                                     &ac->fallback_state,
-                                                     sent);
-        } else if (from == ac->fallback && to == ac->client) {
-            ngx_anytls_upstream_state_add_bytes_received(ac->session,
-                                                         &ac->fallback_state,
-                                                         sent);
-        }
-        if (sent == NGX_AGAIN || sent < n) {
-            break;
-        }
-    }
-
-    (void) ngx_handle_read_event(from->read, 0);
 }
 
 void
