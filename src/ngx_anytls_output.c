@@ -66,6 +66,8 @@ ngx_anytls_reset_frame(ngx_anytls_out_frame_t *f)
     f->payload_buf.pos = NULL;
     f->payload_buf.last = NULL;
     f->payload_buf.end = NULL;
+    f->payload_buf.temporary = 0;
+    f->payload_buf.memory = 0;
 
     f->blocked = 0;
     f->fin = 0;
@@ -307,6 +309,46 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
 
 ngx_int_t
+ngx_anytls_queue_ref_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
+    ngx_uint_t cmd, uint32_t stream_id, u_char *data, size_t len)
+{
+    ngx_anytls_out_frame_t *f;
+
+    if (len > NGX_ANYTLS_MAX_FRAME_DATA) {
+        return NGX_ERROR;
+    }
+
+    if (cmd == NGX_ANYTLS_CMD_PSH && !ngx_anytls_output_has_room(ac, len)) {
+        return NGX_AGAIN;
+    }
+
+    f = ngx_anytls_get_frame(ac);
+    if (f == NULL) {
+        return NGX_ERROR;
+    }
+
+    f->cmd = cmd;
+    f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
+    f->blocked = (cmd == NGX_ANYTLS_CMD_PSH) ? 0 : 1;
+
+    if (len) {
+        f->payload_buf.pos = data;
+        f->payload_buf.last = data + len;
+        f->payload_buf.start = data;
+        f->payload_buf.end = data + len;
+        f->payload_buf.memory = 1;
+
+        f->payload_chain.buf = &f->payload_buf;
+        f->payload_chain.next = NULL;
+        f->length = len;
+    }
+
+    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
+    return ngx_anytls_queue_prepared_frame(ac, st, f);
+}
+
+
+ngx_int_t
 ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
     ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload)
@@ -326,7 +368,6 @@ ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
         return NGX_ERROR;
     }
 
-    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     f->cmd = cmd;
     f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
     f->blocked = (cmd == NGX_ANYTLS_CMD_PSH) ? 0 : 1;
@@ -369,8 +410,8 @@ ngx_anytls_send_synack(ngx_anytls_stream_t *st, u_char *data, size_t len)
         return NGX_OK;
     }
 
-    return ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
-                                  st->id, data, len);
+    return ngx_anytls_queue_ref_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
+                                      st->id, data, len);
 }
 
 

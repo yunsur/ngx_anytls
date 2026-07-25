@@ -6,6 +6,9 @@
 ngx_int_t ngx_anytls_queue_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
     u_char *data, size_t len);
+ngx_int_t ngx_anytls_queue_ref_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
+    u_char *data, size_t len);
 ngx_int_t ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
     ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload);

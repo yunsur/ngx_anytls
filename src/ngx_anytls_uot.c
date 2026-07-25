@@ -8,7 +8,10 @@
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_state.h"
+
+#define NGX_ANYTLS_UOT_MAX_HEADER  21
 
 static ngx_int_t
 ngx_anytls_uot_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
@@ -31,6 +34,20 @@ ngx_anytls_uot_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
     addr->has_sockaddr = 1;
 
     return NGX_OK;
+}
+
+static ngx_int_t
+ngx_anytls_uot_queue_udp_frame(ngx_anytls_stream_t *st, ngx_chain_t *cl,
+    u_char *pos, size_t len)
+{
+    ngx_buf_t *b;
+
+    b = cl->buf;
+    b->pos = pos;
+    b->last = pos + len;
+
+    return ngx_anytls_queue_chain_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
+                                        st->id, cl, len, 1);
 }
 
 static ngx_int_t
@@ -649,8 +666,11 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
 {
     ngx_connection_t *c;
     ngx_anytls_stream_t *st;
-    u_char buf[65536], pkt[65536 + 32], *p;
+    ngx_chain_t *cl;
+    ngx_buf_t *b;
+    u_char *payload, *p;
     ssize_t n;
+    size_t len;
     struct sockaddr_storage from;
     socklen_t fromlen;
     struct sockaddr_in *sin;
@@ -660,10 +680,21 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
     st = c->data;
 
     for ( ;; ) {
+        cl = ngx_anytls_upstream_get_read_buf(
+            st, NGX_ANYTLS_MAX_FRAME_DATA + NGX_ANYTLS_UOT_MAX_HEADER);
+        if (cl == NULL) {
+            ngx_anytls_stream_close(st);
+            return;
+        }
+
+        b = cl->buf;
+        payload = b->pos + NGX_ANYTLS_UOT_MAX_HEADER;
+
         fromlen = sizeof(from);
-        n = recvfrom(c->fd, buf, sizeof(buf), 0, (struct sockaddr *) &from,
-                     &fromlen);
+        n = recvfrom(c->fd, payload, NGX_ANYTLS_MAX_FRAME_DATA, 0,
+                     (struct sockaddr *) &from, &fromlen);
         if (n == -1) {
+            ngx_anytls_upstream_free_read_buf(st, cl);
             if (ngx_socket_errno == NGX_EAGAIN) {
                 break;
             }
@@ -673,14 +704,15 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
 
         if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
             if (n > 65533) {
+                ngx_anytls_upstream_free_read_buf(st, cl);
                 continue;
             }
-            pkt[0] = (u_char) ((size_t) n >> 8);
-            pkt[1] = (u_char) n;
-            ngx_memcpy(pkt + 2, buf, (size_t) n);
-            if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                       st->id, pkt, (size_t) n + 2) != NGX_OK)
-            {
+            p = payload - 2;
+            p[0] = (u_char) ((size_t) n >> 8);
+            p[1] = (u_char) n;
+            len = (size_t) n + 2;
+            if (ngx_anytls_uot_queue_udp_frame(st, cl, p, len) != NGX_OK) {
+                ngx_anytls_upstream_free_read_buf(st, cl);
                 ngx_anytls_uot_log_output_drop(st);
             } else {
                 ngx_anytls_upstream_state_add_bytes_received(st->ac->session,
@@ -689,10 +721,11 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             }
         } else if (from.ss_family == AF_INET) {
             if (n > 65527) {
+                ngx_anytls_upstream_free_read_buf(st, cl);
                 continue;
             }
             sin = (struct sockaddr_in *) &from;
-            p = pkt;
+            p = payload - 9;
             *p++ = 0x00;
             ngx_memcpy(p, &sin->sin_addr.s_addr, 4);
             p += 4;
@@ -700,32 +733,35 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             *p++ = (u_char) ntohs(sin->sin_port);
             *p++ = (u_char) ((size_t) n >> 8);
             *p++ = (u_char) n;
-            p = ngx_cpymem(p, buf, (size_t) n);
-            if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                       st->id, pkt, (size_t) (p - pkt))
+            len = (size_t) n + 9;
+            if (ngx_anytls_uot_queue_udp_frame(st, cl, payload - 9, len)
                 != NGX_OK)
             {
+                ngx_anytls_upstream_free_read_buf(st, cl);
                 ngx_anytls_uot_log_output_drop(st);
             }
         } else if (from.ss_family == AF_INET6) {
             if (n > 65515) {
+                ngx_anytls_upstream_free_read_buf(st, cl);
                 continue;
             }
             sin6 = (struct sockaddr_in6 *) &from;
-            p = pkt;
+            p = payload - 21;
             *p++ = 0x01;
             p = ngx_cpymem(p, &sin6->sin6_addr, 16);
             *p++ = (u_char) (ntohs(sin6->sin6_port) >> 8);
             *p++ = (u_char) ntohs(sin6->sin6_port);
             *p++ = (u_char) ((size_t) n >> 8);
             *p++ = (u_char) n;
-            p = ngx_cpymem(p, buf, (size_t) n);
-            if (ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                       st->id, pkt, (size_t) (p - pkt))
+            len = (size_t) n + 21;
+            if (ngx_anytls_uot_queue_udp_frame(st, cl, payload - 21, len)
                 != NGX_OK)
             {
+                ngx_anytls_upstream_free_read_buf(st, cl);
                 ngx_anytls_uot_log_output_drop(st);
             }
+        } else {
+            ngx_anytls_upstream_free_read_buf(st, cl);
         }
     }
 }

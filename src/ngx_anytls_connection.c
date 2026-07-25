@@ -363,10 +363,10 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         ac->peer_version = settings.version;
         ac->state = NGX_ANYTLS_CONN_READY;
         if (ac->peer_version >= 2) {
-            if (ngx_anytls_queue_frame(ac, NULL,
-                                       NGX_ANYTLS_CMD_SERVER_SETTINGS, 0,
-                                       server_settings.data,
-                                       server_settings.len) != NGX_OK)
+            if (ngx_anytls_queue_ref_frame(ac, NULL,
+                                           NGX_ANYTLS_CMD_SERVER_SETTINGS, 0,
+                                           server_settings.data,
+                                           server_settings.len) != NGX_OK)
             {
                 return NGX_ERROR;
             }
@@ -375,10 +375,10 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             || ngx_strncmp(settings.padding_md5.data, ac->conf->padding_md5, 32)
                != 0)
         {
-            if (ngx_anytls_queue_frame(ac, NULL,
-                                       NGX_ANYTLS_CMD_UPDATE_PADDING, 0,
-                                       ac->conf->padding_data,
-                                       ac->conf->padding_data_len) != NGX_OK)
+            if (ngx_anytls_queue_ref_frame(ac, NULL,
+                                           NGX_ANYTLS_CMD_UPDATE_PADDING, 0,
+                                           ac->conf->padding_data,
+                                           ac->conf->padding_data_len) != NGX_OK)
             {
                 return NGX_ERROR;
             }
@@ -394,9 +394,9 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
 
     case NGX_ANYTLS_CMD_SYN:
         if (!ac->settings_received) {
-            (void) ngx_anytls_queue_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
-                                          (u_char *) "client did not send its settings",
-                                          sizeof("client did not send its settings") - 1);
+            (void) ngx_anytls_queue_ref_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
+                                              (u_char *) "client did not send its settings",
+                                              sizeof("client did not send its settings") - 1);
             (void) ngx_anytls_flush(ac);
             return NGX_ERROR;
         }
