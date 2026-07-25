@@ -111,6 +111,11 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
     if (st && st->state == NGX_ANYTLS_STREAM_CLOSING
         && st->queued_frames == 0)
     {
+        if (st->delayed_close) {
+            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                           "anytls: retry delayed stream %ui close",
+                           (ngx_uint_t) st->id);
+        }
         ngx_anytls_stream_close(st);
     }
 }

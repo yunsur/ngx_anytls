@@ -44,6 +44,50 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
 }
 
 
+static ngx_int_t
+ngx_anytls_upstream_block_input(ngx_anytls_stream_t *st)
+{
+    if (!st->input_blocked) {
+        st->input_blocked = 1;
+        st->input_exhausted = 1;
+
+        ngx_log_debug3(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
+                       "anytls: stream %ui input blocked, pending:%uz "
+                       "limit:%uz", (ngx_uint_t) st->id,
+                       st->pending_in_bytes,
+                       st->ac->conf->max_pending_input);
+    }
+
+    return ngx_anytls_pause_input(st->ac);
+}
+
+
+static ngx_int_t
+ngx_anytls_upstream_update_input_state(ngx_anytls_stream_t *st)
+{
+    size_t lowat;
+
+    if (!st->input_blocked) {
+        return NGX_OK;
+    }
+
+    lowat = st->ac->conf->max_pending_input / 2;
+    if (st->pending_in_bytes > lowat) {
+        return NGX_OK;
+    }
+
+    st->input_blocked = 0;
+    st->input_exhausted = 0;
+
+    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
+                   "anytls: stream %ui input unblocked, pending:%uz "
+                   "lowat:%uz", (ngx_uint_t) st->id, st->pending_in_bytes,
+                   lowat);
+
+    return ngx_anytls_resume_input(st->ac);
+}
+
+
 void
 ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
 {
@@ -67,6 +111,8 @@ ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
     st->pending_in = NULL;
     st->pending_in_last = &st->pending_in;
     st->pending_in_bytes = 0;
+    st->input_blocked = 0;
+    st->input_exhausted = 0;
 
     (void) ngx_anytls_resume_input(st->ac);
 }
@@ -321,15 +367,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
     }
 
     if (st->pending_in_bytes > st->ac->conf->max_pending_input) {
-        ngx_log_debug2(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
-                       "anytls: stream %ui input queue reached %uz bytes, "
-                       "pausing input", (ngx_uint_t) st->id,
-                       st->ac->conf->max_pending_input);
-
-        if (ngx_anytls_pause_input(st->ac) != NGX_OK) {
-            return NGX_ERROR;
-        }
-        return NGX_OK;
+        return ngx_anytls_upstream_block_input(st);
     }
 
     if (st->ac->pending_input > st->ac->conf->max_pending_input) {
@@ -383,6 +421,10 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
             st->pending_in_last = &st->pending_in;
         }
         ngx_anytls_upstream_free_pending(st, p);
+
+        if (ngx_anytls_upstream_update_input_state(st) != NGX_OK) {
+            return NGX_ERROR;
+        }
     }
 
     return ngx_anytls_resume_input(st->ac);

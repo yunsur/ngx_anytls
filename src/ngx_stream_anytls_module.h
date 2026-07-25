@@ -153,7 +153,10 @@ struct ngx_anytls_stream_s {
     unsigned                 fin_sent:1;
     unsigned                 synack_sent:1;
     unsigned                 first_psh_seen:1;
+    unsigned                 input_blocked:1;
+    unsigned                 input_exhausted:1;
     unsigned                 upstream_read_blocked:1;
+    unsigned                 delayed_close:1;
 
     ngx_anytls_addr_t        target;
     u_char                  *initial_data;

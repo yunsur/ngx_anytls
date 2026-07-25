@@ -97,6 +97,14 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     if (!ac->closing && st->queued_frames != 0) {
         st->state = NGX_ANYTLS_STREAM_CLOSING;
+        st->delayed_close = 1;
+
+        ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                       "anytls: delay stream %ui close, queued_frames:%ui "
+                       "pending_out:%uz pending_in:%uz",
+                       (ngx_uint_t) st->id, st->queued_frames,
+                       st->pending_out, st->pending_in_bytes);
+
         ngx_anytls_resolver_cancel(st);
 
         if (st->upstream) {
@@ -114,6 +122,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     }
 
     st->state = NGX_ANYTLS_STREAM_CLOSED;
+    st->delayed_close = 0;
     ngx_anytls_stream_remove_ready(st);
     ngx_anytls_resolver_cancel(st);
     ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);

@@ -19,6 +19,7 @@ static void ngx_anytls_fallback_read(ngx_anytls_connection_t *ac,
 static void ngx_anytls_fallback_write(ngx_anytls_connection_t *ac,
     ngx_connection_t *c);
 static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
+static ngx_uint_t ngx_anytls_input_blocked(ngx_anytls_connection_t *ac);
 
 void
 ngx_anytls_connection_init(ngx_stream_session_t *s,
@@ -243,6 +244,26 @@ ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac)
     return NGX_OK;
 }
 
+static ngx_uint_t
+ngx_anytls_input_blocked(ngx_anytls_connection_t *ac)
+{
+    ngx_queue_t         *q;
+    ngx_anytls_stream_t *st;
+
+    for (q = ngx_queue_head(&ac->stream_list);
+         q != ngx_queue_sentinel(&ac->stream_list);
+         q = ngx_queue_next(q))
+    {
+        st = ngx_queue_data(q, ngx_anytls_stream_t, link);
+
+        if (st->input_blocked) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 ngx_int_t
 ngx_anytls_resume_input(ngx_anytls_connection_t *ac)
 {
@@ -255,6 +276,10 @@ ngx_anytls_resume_input(ngx_anytls_connection_t *ac)
 
     lowat = ac->conf->max_pending_input / 2;
     if (ac->pending_input > lowat) {
+        return NGX_OK;
+    }
+
+    if (ngx_anytls_input_blocked(ac)) {
         return NGX_OK;
     }
 
