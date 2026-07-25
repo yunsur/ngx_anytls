@@ -1,0 +1,43 @@
+ngx_addon_name="ngx_stream_anytls_module"
+
+_NGX_ADDON_SRCS=" \
+    $ngx_addon_dir/src/ngx_stream_anytls_module.c \
+    $ngx_addon_dir/src/ngx_anytls_protocol.c \
+    $ngx_addon_dir/src/ngx_anytls_socksaddr.c \
+    $ngx_addon_dir/src/ngx_anytls_padding.c \
+    $ngx_addon_dir/src/ngx_anytls_stream.c \
+    $ngx_addon_dir/src/ngx_anytls_output.c \
+    $ngx_addon_dir/src/ngx_anytls_connection.c \
+    $ngx_addon_dir/src/ngx_anytls_upstream.c \
+    $ngx_addon_dir/src/ngx_anytls_fallback.c \
+    $ngx_addon_dir/src/ngx_anytls_uot.c \
+"
+
+_NGX_ADDON_DEPS=" \
+    $ngx_addon_dir/src/ngx_stream_anytls_module.h \
+    $ngx_addon_dir/src/ngx_anytls_protocol.h \
+    $ngx_addon_dir/src/ngx_anytls_socksaddr.h \
+    $ngx_addon_dir/src/ngx_anytls_padding.h \
+    $ngx_addon_dir/src/ngx_anytls_stream.h \
+    $ngx_addon_dir/src/ngx_anytls_output.h \
+    $ngx_addon_dir/src/ngx_anytls_connection.h \
+    $ngx_addon_dir/src/ngx_anytls_upstream.h \
+    $ngx_addon_dir/src/ngx_anytls_fallback.h \
+    $ngx_addon_dir/src/ngx_anytls_uot.h \
+"
+
+CORE_LIBS="$CORE_LIBS -lcrypto"
+
+if test -n "$ngx_module_link"; then
+    ngx_module_type=STREAM
+    ngx_module_name=$ngx_addon_name
+    ngx_module_srcs="$_NGX_ADDON_SRCS"
+    ngx_module_deps="$_NGX_ADDON_DEPS"
+    ngx_module_libs="-lcrypto"
+
+    . auto/module
+else
+    STREAM_MODULES="$STREAM_MODULES $ngx_addon_name"
+    NGX_ADDON_SRCS="$NGX_ADDON_SRCS $_NGX_ADDON_SRCS"
+    NGX_ADDON_DEPS="$NGX_ADDON_DEPS $_NGX_ADDON_DEPS"
+fi
