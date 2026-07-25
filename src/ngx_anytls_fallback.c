@@ -3,6 +3,7 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_fallback.h"
+#include "ngx_anytls_upstream_state.h"
 
 ngx_int_t
 ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
@@ -34,6 +35,12 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     ac->fallback_peer.get = ngx_event_get_peer;
     ac->fallback_peer.log = ac->log;
     ac->fallback_peer.log_error = NGX_ERROR_ERR;
+
+    if (ngx_anytls_upstream_state_open(ac->session, &ac->fallback_state,
+                                       ac->fallback_peer.name) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
 
     rc = ngx_event_connect_peer(&ac->fallback_peer);
     if (rc == NGX_ERROR || rc == NGX_BUSY || rc == NGX_DECLINED) {

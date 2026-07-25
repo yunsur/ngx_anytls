@@ -65,6 +65,15 @@ typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
 typedef struct ngx_anytls_out_frame_s ngx_anytls_out_frame_t;
 typedef struct ngx_anytls_pending_s ngx_anytls_pending_t;
 
+typedef struct {
+    ngx_uint_t               index;
+    ngx_msec_t               start_time;
+    off_t                    bytes_sent;
+    off_t                    bytes_received;
+    unsigned                 opened:1;
+    unsigned                 finalized:1;
+} ngx_anytls_upstream_state_tracker_t;
+
 struct ngx_anytls_out_frame_s {
     ngx_anytls_out_frame_t  *next;
     ngx_chain_t             *first;
@@ -105,6 +114,7 @@ struct ngx_anytls_stream_s {
     ngx_peer_connection_t    peer;
     ngx_connection_t        *upstream;
     ngx_str_t                upstream_name;
+    ngx_anytls_upstream_state_tracker_t upstream_state;
     ngx_anytls_pending_t    *pending_in;
     ngx_anytls_pending_t   **pending_in_last;
 
@@ -197,6 +207,7 @@ struct ngx_anytls_connection_s {
     ngx_peer_connection_t    fallback_peer;
     ngx_connection_t        *fallback;
     ngx_buf_t               *fallback_replay;
+    ngx_anytls_upstream_state_tracker_t fallback_state;
 };
 
 void ngx_anytls_client_read_handler(ngx_event_t *rev);

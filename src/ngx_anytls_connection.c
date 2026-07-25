@@ -8,6 +8,7 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_fallback.h"
+#include "ngx_anytls_upstream_state.h"
 
 static ngx_int_t ngx_anytls_process_auth(ngx_anytls_connection_t *ac,
     u_char *data, size_t len, size_t *consumed);
@@ -428,6 +429,8 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
             return;
         }
         b->pos += n;
+        ngx_anytls_upstream_state_add_bytes_sent(ac->session,
+                                                 &ac->fallback_state, n);
     }
 
     ac->fallback_replay = NULL;
@@ -465,6 +468,15 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
             ngx_anytls_finalize(ac);
             return;
         }
+        if (from == ac->client && to == ac->fallback) {
+            ngx_anytls_upstream_state_add_bytes_sent(ac->session,
+                                                     &ac->fallback_state,
+                                                     sent);
+        } else if (from == ac->fallback && to == ac->client) {
+            ngx_anytls_upstream_state_add_bytes_received(ac->session,
+                                                         &ac->fallback_state,
+                                                         sent);
+        }
         if (sent == NGX_AGAIN || sent < n) {
             break;
         }
@@ -492,6 +504,7 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
     }
 
     ac->closing = 1;
+    ngx_anytls_upstream_state_finalize(ac->session, &ac->fallback_state);
 
     for (q = ngx_queue_head(&ac->stream_list);
          q != ngx_queue_sentinel(&ac->stream_list);

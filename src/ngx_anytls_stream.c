@@ -4,6 +4,7 @@
 
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_upstream_state.h"
 
 ngx_anytls_stream_t *
 ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
@@ -95,6 +96,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     st->state = NGX_ANYTLS_STREAM_CLOSED;
     ngx_anytls_stream_remove_ready(st);
     ngx_anytls_resolver_cancel(st);
+    ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
 
     if (st->upstream) {
         ngx_close_connection(st->upstream);

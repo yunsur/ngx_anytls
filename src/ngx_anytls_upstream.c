@@ -6,6 +6,7 @@
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_upstream_state.h"
 
 static ngx_int_t
 ngx_anytls_test_connect(ngx_connection_t *c)
@@ -84,6 +85,12 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     pc->log = st->ac->log;
     pc->log_error = NGX_ERROR_ERR;
 
+    if (ngx_anytls_upstream_state_open(st->ac->session, &st->upstream_state,
+                                       &st->upstream_name) != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
     rc = ngx_event_connect_peer(pc);
     if (rc == NGX_ERROR || rc == NGX_BUSY || rc == NGX_DECLINED) {
         return NGX_ERROR;
@@ -103,6 +110,9 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
         st->synack_sent = 1;
         (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
                                       st->id, NULL, 0);
+        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+            return NGX_ERROR;
+        }
         return ngx_anytls_upstream_send_pending(st);
     }
 
@@ -167,6 +177,8 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
             return ngx_handle_write_event(c->write, 0);
         }
         p->sent += (size_t) n;
+        ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
+                                                 &st->upstream_state, n);
         if (p->sent != p->len) {
             return ngx_handle_write_event(c->write, 0);
         }
@@ -200,6 +212,10 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
         st->synack_sent = 1;
         (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
                                       st->id, NULL, 0);
+        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+            ngx_anytls_stream_close(st);
+            return;
+        }
     }
 
     if (ngx_anytls_upstream_send_pending(st) != NGX_OK) {
@@ -247,6 +263,9 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
         {
             break;
         }
+
+        ngx_anytls_upstream_state_add_bytes_received(st->ac->session,
+                                                     &st->upstream_state, n);
     }
 
     (void) ngx_handle_read_event(rev, 0);

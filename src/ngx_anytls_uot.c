@@ -8,6 +8,7 @@
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_upstream_state.h"
 
 static ngx_int_t
 ngx_anytls_uot_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
@@ -228,6 +229,40 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
     return NGX_OK;
 }
 
+
+static ngx_int_t
+ngx_anytls_uot_upstream_state_open(ngx_anytls_stream_t *st,
+    ngx_anytls_addr_t *addr)
+{
+    u_char *p;
+
+    if (st->uot_mode != NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
+        return NGX_OK;
+    }
+
+    if (st->upstream_state.opened) {
+        return NGX_OK;
+    }
+
+    st->upstream_name.data = ngx_pnalloc(st->pool, NGX_SOCKADDR_STRLEN);
+    if (st->upstream_name.data == NULL) {
+        return NGX_ERROR;
+    }
+
+    st->upstream_name.len = ngx_sock_ntop(
+        (struct sockaddr *) &addr->sockaddr, addr->socklen,
+        st->upstream_name.data, NGX_SOCKADDR_STRLEN, 1);
+    if (st->upstream_name.len == 0) {
+        p = ngx_snprintf(st->upstream_name.data, NGX_SOCKADDR_STRLEN,
+                         "%V:%ui", &addr->host, (ngx_uint_t) addr->port);
+        st->upstream_name.len = p - st->upstream_name.data;
+    }
+
+    return ngx_anytls_upstream_state_open(st->ac->session, &st->upstream_state,
+                                          &st->upstream_name);
+}
+
+
 static ngx_int_t
 ngx_anytls_uot_send_resolved(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr,
     u_char *payload, size_t payload_len)
@@ -248,12 +283,19 @@ ngx_anytls_uot_send_resolved(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr,
         return NGX_ERROR;
     }
 
+    if (ngx_anytls_uot_upstream_state_open(st, addr) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
     n = sendto(st->udp->fd, payload, payload_len, 0,
                (struct sockaddr *) &addr->sockaddr, addr->socklen);
     if (n == -1) {
         ngx_log_debug1(NGX_LOG_DEBUG_STREAM, st->ac->log, ngx_socket_errno,
                        "anytls: UoT sendto() dropped packet (errno %d)",
                        ngx_socket_errno);
+    } else if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
+        ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
+                                                 &st->upstream_state, n);
     }
 
     return NGX_OK;
@@ -623,6 +665,9 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             ngx_memcpy(pkt + 2, buf, (size_t) n);
             (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
                                           st->id, pkt, (size_t) n + 2);
+            ngx_anytls_upstream_state_add_bytes_received(st->ac->session,
+                                                         &st->upstream_state,
+                                                         n);
         } else if (from.ss_family == AF_INET) {
             if (n > 65527) {
                 continue;
