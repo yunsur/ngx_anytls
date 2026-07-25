@@ -4,46 +4,106 @@
 
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_upstream.h"
 
-ngx_int_t
-ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
-    ngx_uint_t cmd, uint32_t stream_id, u_char *data, size_t len)
+static ngx_anytls_out_frame_t *ngx_anytls_get_frame(ngx_anytls_connection_t *ac);
+static void ngx_anytls_free_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_out_frame_t *f);
+static void ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
+    ngx_anytls_out_frame_t *f);
+static void ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac);
+static ngx_uint_t ngx_anytls_frame_sent(ngx_anytls_out_frame_t *f);
+static void ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac);
+static void ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac);
+
+
+static ngx_anytls_out_frame_t *
+ngx_anytls_get_frame(ngx_anytls_connection_t *ac)
 {
     ngx_anytls_out_frame_t *f;
-    ngx_chain_t *cl;
-    ngx_buf_t *b;
-    u_char *p;
 
-    if (len > NGX_ANYTLS_MAX_FRAME_DATA) {
-        return NGX_ERROR;
+    f = ac->free_frames;
+    if (f) {
+        ac->free_frames = f->next;
+        ngx_memzero(f, sizeof(ngx_anytls_out_frame_t));
+        return f;
     }
 
-    if (ac->pending_output + NGX_ANYTLS_FRAME_HEADER_LEN + len
-        > ac->conf->max_pending_output)
+    f = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_out_frame_t));
+    return f;
+}
+
+
+static void
+ngx_anytls_free_frame(ngx_anytls_connection_t *ac, ngx_anytls_out_frame_t *f)
+{
+    if (f->own_payload && f->payload_buf.start) {
+        ngx_free(f->payload_buf.start);
+    }
+
+    f->next = ac->free_frames;
+    ac->free_frames = f;
+}
+
+
+static void
+ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
+    ngx_anytls_out_frame_t *f)
+{
+    ngx_anytls_stream_t *st;
+
+    st = f->stream;
+
+    if (ac->pending_output >= f->length) {
+        ac->pending_output -= f->length;
+    } else {
+        ac->pending_output = 0;
+    }
+
+    if (st) {
+        if (st->pending_out >= f->length) {
+            st->pending_out -= f->length;
+        } else {
+            st->pending_out = 0;
+        }
+        if (f->recycle_payload && f->payload) {
+            ngx_anytls_upstream_free_read_buf(st, f->payload);
+            f->payload = NULL;
+        }
+    }
+
+    ngx_anytls_free_frame(ac, f);
+
+    if (st && st->state == NGX_ANYTLS_STREAM_CLOSING
+        && st->pending_out == 0)
     {
-        return NGX_AGAIN;
+        ngx_anytls_stream_close(st);
     }
+}
 
-    f = ngx_pcalloc(ac->out_pool, sizeof(ngx_anytls_out_frame_t));
-    cl = ngx_alloc_chain_link(ac->out_pool);
-    b = ngx_create_temp_buf(ac->out_pool, NGX_ANYTLS_FRAME_HEADER_LEN + len);
-    if (f == NULL || cl == NULL || b == NULL) {
-        return NGX_ERROR;
-    }
 
-    p = ngx_anytls_write_frame_header(b->pos, cmd, stream_id, (uint16_t) len);
-    if (len && data) {
-        p = ngx_cpymem(p, data, len);
-    }
-    b->last = p;
-    cl->buf = b;
-    cl->next = NULL;
-
-    f->first = cl;
-    f->last = cl;
+static ngx_int_t
+ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_anytls_out_frame_t *f)
+{
+    f->next = NULL;
     f->stream = st;
-    f->length = NGX_ANYTLS_FRAME_HEADER_LEN + len;
-    f->cmd = cmd;
+    f->handler = ngx_anytls_default_frame_handler;
+    f->length += NGX_ANYTLS_FRAME_HEADER_LEN;
+
+    f->header_buf.pos = f->header;
+    f->header_buf.last = f->header + NGX_ANYTLS_FRAME_HEADER_LEN;
+    f->header_buf.start = f->header;
+    f->header_buf.end = f->header + NGX_ANYTLS_FRAME_HEADER_LEN;
+    f->header_buf.temporary = 1;
+    f->header_buf.memory = 1;
+
+    f->header_chain.buf = &f->header_buf;
+    f->header_chain.next = (f->length == NGX_ANYTLS_FRAME_HEADER_LEN)
+                           ? NULL : &f->payload_chain;
+    f->first = &f->header_chain;
+    f->last = (f->header_chain.next == NULL) ? &f->header_chain
+                                             : &f->payload_chain;
 
     if (st == NULL) {
         *ac->last_out_last = f;
@@ -57,8 +117,92 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
     ac->pending_output += f->length;
     ngx_anytls_post_write(ac);
+
     return NGX_OK;
 }
+
+
+ngx_int_t
+ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
+    ngx_uint_t cmd, uint32_t stream_id, u_char *data, size_t len)
+{
+    ngx_anytls_out_frame_t *f;
+
+    if (len > NGX_ANYTLS_MAX_FRAME_DATA) {
+        return NGX_ERROR;
+    }
+
+    if (!ngx_anytls_output_has_room(ac, len)) {
+        return NGX_AGAIN;
+    }
+
+    f = ngx_anytls_get_frame(ac);
+    if (f == NULL) {
+        return NGX_ERROR;
+    }
+
+    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
+    f->cmd = cmd;
+    f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
+
+    if (len) {
+        f->payload_buf.start = ngx_alloc(len, ac->log);
+        if (f->payload_buf.start == NULL) {
+            ngx_anytls_free_frame(ac, f);
+            return NGX_ERROR;
+        }
+
+        ngx_memcpy(f->payload_buf.start, data, len);
+        f->payload_buf.pos = f->payload_buf.start;
+        f->payload_buf.last = f->payload_buf.start + len;
+        f->payload_buf.end = f->payload_buf.last;
+        f->payload_buf.temporary = 1;
+        f->own_payload = 1;
+
+        f->payload_chain.buf = &f->payload_buf;
+        f->payload_chain.next = NULL;
+        f->length = len;
+    }
+
+    return ngx_anytls_queue_prepared_frame(ac, st, f);
+}
+
+
+ngx_int_t
+ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
+    ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload)
+{
+    ngx_anytls_out_frame_t *f;
+
+    if (len > NGX_ANYTLS_MAX_FRAME_DATA) {
+        return NGX_ERROR;
+    }
+
+    if (!ngx_anytls_output_has_room(ac, len)) {
+        return NGX_AGAIN;
+    }
+
+    f = ngx_anytls_get_frame(ac);
+    if (f == NULL) {
+        return NGX_ERROR;
+    }
+
+    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
+    f->cmd = cmd;
+    f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
+    f->length = len;
+
+    if (payload) {
+        f->payload = payload;
+        f->payload_chain = *payload;
+        f->payload_chain.next = NULL;
+        f->recycle_payload = recycle_payload ? 1 : 0;
+    }
+
+    return ngx_anytls_queue_prepared_frame(ac, st, f);
+}
+
 
 static void
 ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
@@ -84,7 +228,6 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
             st->out_last = &st->out;
         }
         f->next = NULL;
-        st->pending_out -= f->length;
 
         *ac->last_out_last = f;
         ac->last_out_last = &f->next;
@@ -96,11 +239,52 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
 }
 
 
+static ngx_uint_t
+ngx_anytls_frame_sent(ngx_anytls_out_frame_t *f)
+{
+    ngx_chain_t *cl;
+
+    for (cl = f->first; cl; cl = cl->next) {
+        if (cl->buf->pos != cl->buf->last) {
+            return 0;
+        }
+        if (cl == f->last) {
+            break;
+        }
+    }
+
+    return 1;
+}
+
+
+static void
+ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac)
+{
+    ngx_anytls_out_frame_t *f;
+
+    while (ac->sending) {
+        f = ac->sending;
+        if (!ngx_anytls_frame_sent(f)) {
+            break;
+        }
+
+        ac->sending = f->next;
+        if (ac->sending == NULL) {
+            ac->sending_last = &ac->sending;
+        }
+        f->next = NULL;
+
+        f->handler(ac, f);
+    }
+}
+
+
 static void
 ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
 {
     ngx_queue_t *q, *next;
     ngx_anytls_stream_t *st;
+    size_t size;
 
     for (q = ngx_queue_head(&ac->stream_list);
          q != ngx_queue_sentinel(&ac->stream_list);
@@ -115,7 +299,9 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
             continue;
         }
 
-        if (!ngx_anytls_output_has_room(ac, st->read_buf_size)) {
+        size = ngx_min(st->ac->conf->buffer_size,
+                       (size_t) NGX_ANYTLS_MAX_FRAME_DATA);
+        if (!ngx_anytls_output_has_room(ac, size)) {
             return;
         }
 
@@ -124,17 +310,6 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
             ngx_anytls_stream_close(st);
             return;
         }
-    }
-}
-
-
-static void
-ngx_anytls_reset_output_pool(ngx_anytls_connection_t *ac)
-{
-    if (ac->pending_output == 0 && ac->unsent == NULL
-        && ac->last_out == NULL && ac->out_pool)
-    {
-        ngx_reset_pool(ac->out_pool);
     }
 }
 
@@ -151,13 +326,13 @@ ngx_anytls_post_write(ngx_anytls_connection_t *ac)
     }
 }
 
+
 ngx_int_t
 ngx_anytls_flush(ngx_anytls_connection_t *ac)
 {
     ngx_connection_t *c;
-    ngx_chain_t *cl, **ll;
+    ngx_chain_t **ll;
     ngx_anytls_out_frame_t *f, *next;
-    size_t length;
 
     c = ac->client;
     if (c->error) {
@@ -167,27 +342,25 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
     ngx_anytls_schedule_stream_frames(ac);
 
     if (ac->unsent == NULL) {
-        cl = NULL;
-        ll = &cl;
-        length = 0;
+        ll = &ac->unsent;
 
         for (f = ac->last_out; f; f = next) {
             next = f->next;
+
             *ll = f->first;
             ll = &f->last->next;
-            length += f->length;
+
             f->next = NULL;
+            *ac->sending_last = f;
+            ac->sending_last = &f->next;
         }
 
         *ll = NULL;
         ac->last_out = NULL;
         ac->last_out_last = &ac->last_out;
-        ac->unsent = cl;
-        ac->unsent_length = length;
     }
 
     if (ac->unsent == NULL) {
-        ngx_anytls_reset_output_pool(ac);
         return NGX_OK;
     }
 
@@ -196,6 +369,9 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
         return NGX_ERROR;
     }
 
+    ngx_anytls_recycle_sent_frames(ac);
+    ngx_anytls_resume_upstream_reads(ac);
+
     if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
         return NGX_ERROR;
     }
@@ -203,15 +379,6 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
     if (ac->unsent != NULL) {
         return NGX_AGAIN;
     }
-
-    if (ac->pending_output >= ac->unsent_length) {
-        ac->pending_output -= ac->unsent_length;
-    } else {
-        ac->pending_output = 0;
-    }
-    ac->unsent_length = 0;
-    ngx_anytls_reset_output_pool(ac);
-    ngx_anytls_resume_upstream_reads(ac);
 
     if (ac->last_out != NULL || !ngx_queue_empty(&ac->ready_streams)) {
         ngx_anytls_post_write(ac);

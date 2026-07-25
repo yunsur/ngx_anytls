@@ -94,6 +94,35 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     }
 
     ac = st->ac;
+
+    if (!ac->closing && st->pending_out != 0) {
+        st->state = NGX_ANYTLS_STREAM_CLOSING;
+        ngx_anytls_resolver_cancel(st);
+
+        if (st->upstream) {
+            ngx_close_connection(st->upstream);
+            st->upstream = NULL;
+        }
+        if (st->udp) {
+            ngx_close_connection(st->udp);
+            st->udp = NULL;
+        }
+
+        p = st->pending_in;
+        while (p) {
+            n = p->next;
+            if (p->data) {
+                ngx_free(p->data);
+            }
+            p = n;
+        }
+        st->pending_in = NULL;
+        st->pending_in_last = &st->pending_in;
+        st->pending_in_bytes = 0;
+        ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
+        return;
+    }
+
     st->state = NGX_ANYTLS_STREAM_CLOSED;
     ngx_anytls_stream_remove_ready(st);
     ngx_anytls_resolver_cancel(st);
@@ -128,8 +157,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     p = st->pending_in;
     while (p) {
         n = p->next;
+        if (p->data) {
+            ngx_free(p->data);
+        }
         p = n;
     }
+    st->pending_in_bytes = 0;
 
     ngx_rbtree_delete(&ac->streams, &st->node);
     ngx_queue_remove(&st->link);

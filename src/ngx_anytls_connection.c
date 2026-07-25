@@ -57,14 +57,10 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
         ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
-    ac->out_pool = ngx_create_pool(4096, c->log);
-    if (ac->out_pool == NULL) {
-        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
-        return;
-    }
     ac->in_pos = ac->in;
     ac->in_last = ac->in;
     ac->last_out_last = &ac->last_out;
+    ac->sending_last = &ac->sending;
 
     ngx_rbtree_init(&ac->streams, &ac->sentinel, ngx_rbtree_insert_value);
     ngx_queue_init(&ac->stream_list);
@@ -358,6 +354,10 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
         return;
     }
 
+    if (ac->client_read_blocked) {
+        return;
+    }
+
     buf = ac->read_buf;
 
     for ( ;; ) {
@@ -381,9 +381,15 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
             }
             return;
         }
+
+        if (ac->client_read_blocked) {
+            return;
+        }
     }
 
-    (void) ngx_handle_read_event(rev, 0);
+    if (!ac->client_read_blocked) {
+        (void) ngx_handle_read_event(rev, 0);
+    }
 }
 
 void
@@ -531,11 +537,6 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
     if (ac->fallback) {
         ngx_close_connection(ac->fallback);
         ac->fallback = NULL;
-    }
-
-    if (ac->out_pool) {
-        ngx_destroy_pool(ac->out_pool);
-        ac->out_pool = NULL;
     }
 
     ngx_stream_finalize_session(ac->session, NGX_STREAM_OK);

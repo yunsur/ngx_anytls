@@ -64,6 +64,8 @@ typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
 typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
 typedef struct ngx_anytls_out_frame_s ngx_anytls_out_frame_t;
 typedef struct ngx_anytls_pending_s ngx_anytls_pending_t;
+typedef void (*ngx_anytls_frame_handler_pt)(ngx_anytls_connection_t *ac,
+    ngx_anytls_out_frame_t *frame);
 
 typedef struct {
     ngx_uint_t               index;
@@ -78,11 +80,20 @@ struct ngx_anytls_out_frame_s {
     ngx_anytls_out_frame_t  *next;
     ngx_chain_t             *first;
     ngx_chain_t             *last;
+    ngx_chain_t             *payload;
     ngx_anytls_stream_t     *stream;
+    ngx_anytls_frame_handler_pt handler;
     size_t                   length;
     ngx_uint_t               cmd;
+    ngx_chain_t              header_chain;
+    ngx_buf_t                header_buf;
+    u_char                   header[NGX_ANYTLS_FRAME_HEADER_LEN];
+    ngx_chain_t              payload_chain;
+    ngx_buf_t                payload_buf;
     unsigned                 blocked:1;
     unsigned                 fin:1;
+    unsigned                 own_payload:1;
+    unsigned                 recycle_payload:1;
 };
 
 struct ngx_anytls_pending_s {
@@ -115,10 +126,11 @@ struct ngx_anytls_stream_s {
     ngx_connection_t        *upstream;
     ngx_str_t                upstream_name;
     ngx_anytls_upstream_state_tracker_t upstream_state;
-    u_char                  *read_buf;
-    size_t                   read_buf_size;
+    ngx_chain_t             *free_read_bufs;
     ngx_anytls_pending_t    *pending_in;
     ngx_anytls_pending_t   **pending_in_last;
+    ngx_anytls_pending_t    *free_pending_in;
+    size_t                   pending_in_bytes;
 
     ngx_anytls_out_frame_t  *out;
     ngx_anytls_out_frame_t **out_last;
@@ -189,10 +201,11 @@ struct ngx_anytls_connection_s {
 
     ngx_anytls_out_frame_t  *last_out;
     ngx_anytls_out_frame_t **last_out_last;
+    ngx_anytls_out_frame_t  *sending;
+    ngx_anytls_out_frame_t **sending_last;
+    ngx_anytls_out_frame_t  *free_frames;
     ngx_chain_t             *unsent;
-    size_t                   unsent_length;
     size_t                   pending_output;
-    ngx_pool_t              *out_pool;
 
     u_char                  *read_buf;
     size_t                   read_buf_size;
@@ -209,6 +222,7 @@ struct ngx_anytls_connection_s {
     unsigned                 authenticated:1;
     unsigned                 settings_received:1;
     unsigned                 client_eof:1;
+    unsigned                 client_read_blocked:1;
     unsigned                 write_pending:1;
     unsigned                 closing:1;
 
