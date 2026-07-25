@@ -1,0 +1,54 @@
+---
+# clang-tidy configuration for ngx_anytls (nginx stream module, C99/gnu99)
+#
+# Targets: GCC/Clang C99 (gnu99 extensions), nginx coding conventions
+# Key exclusions:
+#   - readability-magic-numbers: nginx/protocol constants are intentional
+#   - performance-no-int-to-ptr: nginx uses (void *)(uintptr_t)NGX_ERROR idiom
+#   - readability-identifier-length: nginx uses short names (c, s, cf, rc)
+#   - readability-function-cognitive-complexity: nginx merge_srv_conf is complex by design
+#   - cert-err33-c: nginx return-value convention uses ngx_int_t, not errno
+#
+Checks: >-
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -modernize-*,
+  -objc-*,
+  -fuchsia-*,
+  -linuxkernel-*,
+  -altera-*,
+  -android-*,
+  -abseil-*,
+  -boost-*,
+  -darwin-*,
+  -llvm-*,
+  -llvmlibc-*,
+  -google-*,
+  -hicpp-*,
+  -zircon-*,
+  -cppcoreguidelines-*,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -readability-identifier-length,
+  -performance-no-int-to-ptr,
+  -cert-err33-c,
+  -misc-include-cleaner,
+  -misc-unused-parameters,
+  -misc-header-include-cycle,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -bugprone-easily-swappable-parameters
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '.*/ngx_anytls/src/.*\.(h|c)$'
+
+FormatStyle: none
+
+CheckOptions:
+  - key:   misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic
+    value: 'true'
