@@ -101,6 +101,14 @@ Maximum pending output (frames waiting to be sent to the client) per connection.
 
 Maximum pending input (data from client waiting to be forwarded upstream) per connection. When exceeded, client reads are blocked until the upstream drains the queue.
 
+### `anytls_write_timeout`
+
+- **Syntax:** `anytls_write_timeout <time>;`
+- **Default:** `60s`
+- **Context:** `stream`, `server`
+
+Maximum time a connection may keep unsent output queued to the client before the session is closed. Set to `0` to disable this timeout.
+
 ### `anytls_uot_pending_packets`
 
 - **Syntax:** `anytls_uot_pending_packets <number>;`
@@ -169,6 +177,7 @@ stream {
         anytls_buffer_size 65535;
         anytls_max_pending_output 8m;
         anytls_max_pending_input 8m;
+        anytls_write_timeout 60s;
     }
 }
 ```

@@ -28,7 +28,7 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_MAX_FREE_PENDING_IN 64
 #define NGX_ANYTLS_MIN_SCHEDULE_FRAMES 16
 #define NGX_ANYTLS_MAX_SCHEDULE_BYTES  (1024 * 1024)
-#define NGX_ANYTLS_CONTROL_WRITE_TIMEOUT 5000
+#define NGX_ANYTLS_DEFAULT_WRITE_TIMEOUT 60000
 #define NGX_ANYTLS_DEFAULT_PADDING                                           \
     "stop=8\n"                                                              \
     "0=30-30\n"                                                            \
@@ -202,6 +202,7 @@ typedef struct {
     size_t                   max_pending_input;
     ngx_resolver_t          *resolver;
     ngx_msec_t               resolver_timeout;
+    ngx_msec_t               write_timeout;
     ngx_uint_t               uot_pending_packets;
     size_t                   uot_pending_bytes;
 } ngx_stream_anytls_srv_conf_t;

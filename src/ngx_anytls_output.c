@@ -565,7 +565,8 @@ ngx_anytls_write_timeout_handler(ngx_event_t *ev)
     }
 
     ngx_log_error(NGX_LOG_INFO, ac->log, 0,
-                  "anytls: control write timeout");
+                  "anytls: control write timeout after %M ms",
+                  ac->conf->write_timeout);
     ngx_anytls_finalize(ac);
 }
 
@@ -575,7 +576,9 @@ ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac)
 {
     ngx_event_t *ev;
 
-    if (ac == NULL || ac->closing || ac->client == NULL) {
+    if (ac == NULL || ac->closing || ac->client == NULL
+        || ac->conf->write_timeout == 0)
+    {
         return;
     }
 
@@ -587,7 +590,7 @@ ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac)
     }
 
     if (!ev->timer_set) {
-        ngx_add_timer(ev, NGX_ANYTLS_CONTROL_WRITE_TIMEOUT);
+        ngx_add_timer(ev, ac->conf->write_timeout);
     }
 }
 
