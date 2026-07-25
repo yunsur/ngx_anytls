@@ -15,12 +15,9 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_READ_BUF_SIZE       65536
 #define NGX_ANYTLS_STREAM_POOL_SIZE    4096
 #define NGX_ANYTLS_PADDING_MAX_SIZE    (1024 * 1024)
-#define NGX_ANYTLS_DEFAULT_TIMEOUT     60000
-#define NGX_ANYTLS_DEFAULT_CONNECT_TIMEOUT 30000
 #define NGX_ANYTLS_DEFAULT_BUF_SIZE    32768
 #define NGX_ANYTLS_DEFAULT_MAX_STREAMS 1024
 #define NGX_ANYTLS_DEFAULT_MAX_PENDING (8 * 1024 * 1024)
-#define NGX_ANYTLS_DEFAULT_UOT_TIMEOUT 60000
 #define NGX_ANYTLS_DEFAULT_UOT_PENDING_PACKETS 256
 #define NGX_ANYTLS_DEFAULT_UOT_PENDING_BYTES (512 * 1024)
 #define NGX_ANYTLS_DEFAULT_PADDING                                           \
@@ -133,7 +130,6 @@ struct ngx_anytls_stream_s {
 
     ngx_connection_t        *udp;
     ngx_uint_t               udp_family;
-    ngx_event_t              udp_timer;
     ngx_queue_t              uot_pending;
     ngx_uint_t               uot_pending_count;
     size_t                   uot_pending_bytes;
@@ -155,14 +151,11 @@ typedef struct {
     ngx_stream_complex_value_t *fallback;
     ngx_flag_t               fallback_proxy_protocol;
     ngx_flag_t               fallback_proxy_protocol_set;
-    ngx_msec_t               connect_timeout;
-    ngx_msec_t               timeout;
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
     size_t                   max_pending_output;
     ngx_resolver_t          *resolver;
     ngx_msec_t               resolver_timeout;
-    ngx_msec_t               uot_timeout;
     ngx_uint_t               uot_pending_packets;
     size_t                   uot_pending_bytes;
 } ngx_stream_anytls_srv_conf_t;
