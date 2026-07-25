@@ -9,6 +9,7 @@
 static ngx_anytls_out_frame_t *ngx_anytls_get_frame(ngx_anytls_connection_t *ac);
 static void ngx_anytls_free_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_out_frame_t *f);
+static void ngx_anytls_reset_frame(ngx_anytls_out_frame_t *f);
 static ngx_uint_t ngx_anytls_frame_strong_ref(ngx_uint_t cmd,
     ngx_anytls_stream_t *st);
 static void ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
@@ -17,6 +18,7 @@ static void ngx_anytls_queue_connection_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_out_frame_t *f);
 static void ngx_anytls_queue_blocked_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_out_frame_t *f);
+static ngx_uint_t ngx_anytls_frame_payload_headroom(ngx_chain_t *payload);
 static void ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac);
 static ngx_uint_t ngx_anytls_frame_sent(ngx_anytls_out_frame_t *f);
 static void ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac);
@@ -35,12 +37,40 @@ ngx_anytls_get_frame(ngx_anytls_connection_t *ac)
     if (f) {
         ac->free_frames = f->next;
         ac->free_frames_count--;
-        ngx_memzero(f, sizeof(ngx_anytls_out_frame_t));
+        ngx_anytls_reset_frame(f);
         return f;
     }
 
     f = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_out_frame_t));
     return f;
+}
+
+
+static void
+ngx_anytls_reset_frame(ngx_anytls_out_frame_t *f)
+{
+    f->next = NULL;
+    f->first = NULL;
+    f->last = NULL;
+    f->payload = NULL;
+    f->stream = NULL;
+    f->handler = NULL;
+    f->length = 0;
+    f->cmd = 0;
+
+    f->header_chain.next = NULL;
+    f->payload_chain.next = NULL;
+    f->payload_chain.buf = NULL;
+
+    f->payload_buf.start = NULL;
+    f->payload_buf.pos = NULL;
+    f->payload_buf.last = NULL;
+    f->payload_buf.end = NULL;
+
+    f->blocked = 0;
+    f->fin = 0;
+    f->own_payload = 0;
+    f->recycle_payload = 0;
 }
 
 
@@ -184,19 +214,21 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
     f->handler = ngx_anytls_default_frame_handler;
     f->length += NGX_ANYTLS_FRAME_HEADER_LEN;
 
-    f->header_buf.pos = f->header;
-    f->header_buf.last = f->header + NGX_ANYTLS_FRAME_HEADER_LEN;
-    f->header_buf.start = f->header;
-    f->header_buf.end = f->header + NGX_ANYTLS_FRAME_HEADER_LEN;
-    f->header_buf.temporary = 1;
-    f->header_buf.memory = 1;
+    if (f->first == NULL) {
+        f->header_buf.pos = f->header;
+        f->header_buf.last = f->header + NGX_ANYTLS_FRAME_HEADER_LEN;
+        f->header_buf.start = f->header;
+        f->header_buf.end = f->header + NGX_ANYTLS_FRAME_HEADER_LEN;
+        f->header_buf.temporary = 1;
+        f->header_buf.memory = 1;
 
-    f->header_chain.buf = &f->header_buf;
-    f->header_chain.next = (f->length == NGX_ANYTLS_FRAME_HEADER_LEN)
-                           ? NULL : &f->payload_chain;
-    f->first = &f->header_chain;
-    f->last = (f->header_chain.next == NULL) ? &f->header_chain
-                                             : &f->payload_chain;
+        f->header_chain.buf = &f->header_buf;
+        f->header_chain.next = (f->length == NGX_ANYTLS_FRAME_HEADER_LEN)
+                               ? NULL : &f->payload_chain;
+        f->first = &f->header_chain;
+        f->last = (f->header_chain.next == NULL) ? &f->header_chain
+                                                 : &f->payload_chain;
+    }
 
     if (strong_ref) {
         st->queued_frames++;
@@ -246,7 +278,6 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         return NGX_ERROR;
     }
 
-    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     f->cmd = cmd;
     f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
     f->blocked = (cmd == NGX_ANYTLS_CMD_PSH) ? 0 : 1;
@@ -270,6 +301,7 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         f->length = len;
     }
 
+    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     return ngx_anytls_queue_prepared_frame(ac, st, f);
 }
 
@@ -305,8 +337,21 @@ ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
         f->payload_chain = *payload;
         f->payload_chain.next = NULL;
         f->recycle_payload = recycle_payload ? 1 : 0;
+
+        if (cmd == NGX_ANYTLS_CMD_PSH
+            && ngx_anytls_frame_payload_headroom(payload))
+        {
+            f->payload_chain.buf->pos -= NGX_ANYTLS_FRAME_HEADER_LEN;
+            ngx_anytls_write_frame_header(f->payload_chain.buf->pos, cmd,
+                                          stream_id, (uint16_t) len);
+            f->first = &f->payload_chain;
+            f->last = &f->payload_chain;
+
+            return ngx_anytls_queue_prepared_frame(ac, st, f);
+        }
     }
 
+    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     return ngx_anytls_queue_prepared_frame(ac, st, f);
 }
 
@@ -375,6 +420,21 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
             ngx_anytls_stream_mark_ready(st);
         }
     }
+}
+
+
+static ngx_uint_t
+ngx_anytls_frame_payload_headroom(ngx_chain_t *payload)
+{
+    ngx_buf_t *b;
+
+    if (payload == NULL || payload->buf == NULL) {
+        return 0;
+    }
+
+    b = payload->buf;
+
+    return b->pos >= b->start + NGX_ANYTLS_FRAME_HEADER_LEN;
 }
 
 
