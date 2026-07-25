@@ -460,9 +460,7 @@ ngx_anytls_uot_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
     st->state = NGX_ANYTLS_STREAM_CONNECTED;
     st->uot_request_parsed = (addr->mode != NGX_ANYTLS_ADDR_UOT_V2_CONNECT);
 
-    st->synack_sent = 1;
-    return ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
-                                  st->id, NULL, 0);
+    return ngx_anytls_send_synack(st, NULL, 0);
 }
 
 ngx_int_t
@@ -741,6 +739,7 @@ ngx_anytls_udp_write_handler(ngx_event_t *wev)
 void
 ngx_anytls_uot_close(ngx_anytls_stream_t *st)
 {
+    ngx_anytls_resolver_cancel(st);
     ngx_anytls_uot_clear_pending(st);
 
     if (st->udp) {

@@ -308,6 +308,24 @@ ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
 }
 
 
+ngx_int_t
+ngx_anytls_send_synack(ngx_anytls_stream_t *st, u_char *data, size_t len)
+{
+    if (st == NULL || st->synack_sent) {
+        return NGX_OK;
+    }
+
+    st->synack_sent = 1;
+
+    if (st->ac->peer_version < 2) {
+        return NGX_OK;
+    }
+
+    return ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
+                                  st->id, data, len);
+}
+
+
 static void
 ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
 {

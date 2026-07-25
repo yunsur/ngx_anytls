@@ -280,9 +280,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
 
     if (rc == NGX_OK) {
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
-        st->synack_sent = 1;
-        (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
-                                      st->id, NULL, 0);
+        (void) ngx_anytls_send_synack(st, NULL, 0);
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             return NGX_ERROR;
         }
@@ -441,16 +439,13 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
 
     if (st->state == NGX_ANYTLS_STREAM_CONNECTING) {
         if (ngx_anytls_test_connect(c) != NGX_OK) {
-            (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
-                                          st->id, (u_char *) "connect failed",
+            (void) ngx_anytls_send_synack(st, (u_char *) "connect failed",
                                           sizeof("connect failed") - 1);
             ngx_anytls_stream_close(st);
             return;
         }
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
-        st->synack_sent = 1;
-        (void) ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_SYNACK,
-                                      st->id, NULL, 0);
+        (void) ngx_anytls_send_synack(st, NULL, 0);
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             ngx_anytls_stream_close(st);
             return;

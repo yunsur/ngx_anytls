@@ -346,11 +346,15 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         return ngx_anytls_queue_frame(ac, NULL, NGX_ANYTLS_CMD_HEART_RESPONSE,
                                       frame->stream_id, NULL, 0);
 
+    case NGX_ANYTLS_CMD_HEART_RESPONSE:
+        return NGX_OK;
+
     case NGX_ANYTLS_CMD_SYN:
         if (!ac->settings_received) {
             (void) ngx_anytls_queue_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
-                                          (u_char *) "settings required",
-                                          sizeof("settings required") - 1);
+                                          (u_char *) "client did not send its settings",
+                                          sizeof("client did not send its settings") - 1);
+            (void) ngx_anytls_flush(ac);
             return NGX_ERROR;
         }
         if (ngx_anytls_stream_find(ac, frame->stream_id) != NULL) {
@@ -364,19 +368,50 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         if (st == NULL) {
             return NGX_OK;
         }
+        if (st->in_closed || st->state == NGX_ANYTLS_STREAM_CLOSING
+            || st->state == NGX_ANYTLS_STREAM_CLOSED)
+        {
+            return NGX_OK;
+        }
         return ngx_anytls_handle_psh(ac, st, frame);
 
     case NGX_ANYTLS_CMD_FIN:
         st = ngx_anytls_stream_find(ac, frame->stream_id);
         if (st) {
             st->in_closed = 1;
-            if (st->upstream) {
+
+            if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
+                ngx_anytls_uot_close(st);
+                ngx_anytls_stream_close(st);
+
+            } else if (st->upstream) {
                 ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
-            }
-            if (st->out_closed) {
+
+                if (st->out_closed) {
+                    ngx_anytls_stream_close(st);
+                }
+
+            } else if (st->out_closed) {
                 ngx_anytls_stream_close(st);
             }
         }
+        return NGX_OK;
+
+    case NGX_ANYTLS_CMD_ALERT:
+        if (frame->data_len) {
+            ngx_log_error(NGX_LOG_INFO, ac->log, 0,
+                          "anytls: alert from client: \"%*s\"",
+                          (int) frame->data_len, frame->data);
+        }
+        return NGX_DONE;
+
+    case NGX_ANYTLS_CMD_SYNACK:
+    case NGX_ANYTLS_CMD_UPDATE_PADDING:
+    case NGX_ANYTLS_CMD_SERVER_SETTINGS:
+        ngx_log_debug2(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                       "anytls: ignored client control frame %s, stream:%ui",
+                       ngx_anytls_cmd_name(frame->cmd),
+                       (ngx_uint_t) frame->stream_id);
         return NGX_OK;
 
     default:
