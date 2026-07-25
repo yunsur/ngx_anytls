@@ -12,6 +12,7 @@
 
 static ngx_int_t ngx_anytls_process_auth(ngx_anytls_connection_t *ac,
     u_char *data, size_t len, size_t *consumed);
+static void ngx_anytls_send_http_400(ngx_anytls_connection_t *ac);
 static ngx_int_t ngx_anytls_handle_psh(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_anytls_frame_t *frame);
 static void ngx_anytls_fallback_read(ngx_anytls_connection_t *ac,
@@ -98,6 +99,11 @@ ngx_anytls_process_auth(ngx_anytls_connection_t *ac, u_char *data, size_t len,
     }
 
     if (ngx_memcmp(ac->auth, ac->conf->password_hash, 32) != 0) {
+        if (ac->conf->fallback == NULL) {
+            ngx_anytls_send_http_400(ac);
+            return NGX_ERROR;
+        }
+
         if (ngx_anytls_fallback_start(ac, ac->auth, ac->auth_len) != NGX_OK) {
             return NGX_ERROR;
         }
@@ -124,6 +130,38 @@ ngx_anytls_process_auth(ngx_anytls_connection_t *ac, u_char *data, size_t len,
     ac->authenticated = 1;
     ac->state = NGX_ANYTLS_CONN_SETTINGS;
     return NGX_OK;
+}
+
+static void
+ngx_anytls_send_http_400(ngx_anytls_connection_t *ac)
+{
+    static u_char body[] =
+        "<html>\r\n"
+        "<head><title>400 Bad Request</title></head>\r\n"
+        "<body>\r\n"
+        "<center><h1>400 Bad Request</h1></center>\r\n"
+        "<hr><center>nginx</center>\r\n"
+        "</body>\r\n"
+        "</html>\r\n";
+    u_char buf[512], *p;
+
+    if (ac->client != NULL) {
+        p = ngx_cpymem(buf, "HTTP/1.1 400 Bad Request" CRLF,
+                       sizeof("HTTP/1.1 400 Bad Request" CRLF) - 1);
+        p = ngx_cpymem(p, "Server: nginx" CRLF,
+                       sizeof("Server: nginx" CRLF) - 1);
+        p = ngx_cpymem(p, "Date: ", sizeof("Date: ") - 1);
+        p = ngx_cpymem(p, ngx_cached_http_time.data, ngx_cached_http_time.len);
+        p = ngx_cpymem(p, CRLF, sizeof(CRLF) - 1);
+        p = ngx_cpymem(p, "Content-Type: text/html" CRLF,
+                       sizeof("Content-Type: text/html" CRLF) - 1);
+        p = ngx_sprintf(p, "Content-Length: %uz" CRLF, sizeof(body) - 1);
+        p = ngx_cpymem(p, "Connection: close" CRLF CRLF,
+                       sizeof("Connection: close" CRLF CRLF) - 1);
+        p = ngx_cpymem(p, body, sizeof(body) - 1);
+
+        (void) ac->client->send(ac->client, buf, (size_t) (p - buf));
+    }
 }
 
 ngx_int_t

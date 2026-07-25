@@ -14,6 +14,10 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     ngx_buf_t *b;
     ngx_int_t rc;
 
+    if (ac->conf->fallback == NULL) {
+        return NGX_DECLINED;
+    }
+
     if (ngx_stream_complex_value(ac->session, ac->conf->fallback, &target)
         != NGX_OK)
     {

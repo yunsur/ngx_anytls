@@ -188,6 +188,10 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
         conf->fallback_proxy_protocol = prev->fallback_proxy_protocol;
         conf->fallback_proxy_protocol_set = prev->fallback_proxy_protocol_set;
     }
+    if (conf->fallback_proxy_protocol_set == NGX_CONF_UNSET) {
+        conf->fallback_proxy_protocol = 0;
+        conf->fallback_proxy_protocol_set = 0;
+    }
 
     ngx_conf_merge_size_value(conf->buffer_size, prev->buffer_size,
                               NGX_ANYTLS_DEFAULT_BUF_SIZE);
@@ -211,17 +215,6 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
         if (!conf->password_set) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                                "anytls: \"anytls_password\" is required");
-            return NGX_CONF_ERROR;
-        }
-        if (conf->fallback == NULL) {
-            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                               "anytls: \"anytls_fallback\" is required");
-            return NGX_CONF_ERROR;
-        }
-        if (conf->fallback_proxy_protocol_set == NGX_CONF_UNSET) {
-            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                               "anytls: \"anytls_fallback_proxy_protocol\" "
-                               "must be explicitly set");
             return NGX_CONF_ERROR;
         }
     }
