@@ -59,7 +59,8 @@ typedef enum {
 typedef enum {
     NGX_ANYTLS_RESOLVE_NONE = 0,
     NGX_ANYTLS_RESOLVE_TCP,
-    NGX_ANYTLS_RESOLVE_UOT_CONNECT
+    NGX_ANYTLS_RESOLVE_UOT_CONNECT,
+    NGX_ANYTLS_RESOLVE_UOT_PACKET
 } ngx_anytls_resolve_target_e;
 
 typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
@@ -87,7 +88,9 @@ struct ngx_anytls_pending_s {
 
 typedef struct {
     ngx_queue_t              queue;
-    ngx_anytls_addr_t        addr;
+    u_char                  *domain;
+    size_t                   domain_len;
+    uint16_t                 port;
     u_char                  *payload;
     size_t                   payload_len;
 } ngx_anytls_uot_pending_t;
@@ -134,6 +137,13 @@ struct ngx_anytls_stream_s {
     ngx_queue_t              uot_pending;
     ngx_uint_t               uot_pending_count;
     size_t                   uot_pending_bytes;
+    ngx_uint_t               uot_cached_valid;
+    u_char                   uot_cached_domain[256];
+    size_t                   uot_cached_domain_len;
+    uint16_t                 uot_cached_port;
+    struct sockaddr_storage  uot_cached_sockaddr;
+    socklen_t                uot_cached_socklen;
+    ngx_msec_t               uot_cached_expires;
     ngx_anytls_addr_mode_e   uot_mode;
     u_char                  *uot_recv_buf;
     size_t                   uot_recv_len;

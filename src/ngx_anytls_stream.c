@@ -107,6 +107,11 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     if (st->udp_timer.timer_set) {
         ngx_del_timer(&st->udp_timer);
     }
+    while (!ngx_queue_empty(&st->uot_pending)) {
+        ngx_queue_remove(ngx_queue_head(&st->uot_pending));
+    }
+    st->uot_pending_count = 0;
+    st->uot_pending_bytes = 0;
 
     p = st->pending_in;
     while (p) {

@@ -176,15 +176,23 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
                           (ngx_uint_t) st->resolver_port);
         }
 
-        ngx_resolve_name_done(resolve);
-        st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-        st->resolver_domain_len = 0;
-        st->resolver_port = 0;
-
         if (target == NGX_ANYTLS_RESOLVE_TCP) {
+            ngx_resolve_name_done(resolve);
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
             (void) ngx_anytls_queue_frame(st->ac, NULL, NGX_ANYTLS_CMD_SYNACK,
                                           st->id, (u_char *) "resolve failed",
                                           sizeof("resolve failed") - 1);
+        } else if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
+            ngx_resolve_name_done(resolve);
+            ngx_anytls_uot_packet_resolve_failed(st);
+            return;
+        } else {
+            ngx_resolve_name_done(resolve);
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
         }
 
         ngx_anytls_stream_close(st);
@@ -192,11 +200,11 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
     }
 
     ngx_resolve_name_done(resolve);
-    st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-    st->resolver_domain_len = 0;
-    st->resolver_port = 0;
 
     if (target == NGX_ANYTLS_RESOLVE_TCP) {
+        st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+        st->resolver_domain_len = 0;
+        st->resolver_port = 0;
         if (ngx_anytls_upstream_open_resolved(st) != NGX_OK) {
             ngx_anytls_stream_close(st);
         }
@@ -204,8 +212,23 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
     }
 
     if (target == NGX_ANYTLS_RESOLVE_UOT_CONNECT) {
+        st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+        st->resolver_domain_len = 0;
+        st->resolver_port = 0;
         if (ngx_anytls_uot_resolved(st) != NGX_OK) {
             ngx_anytls_stream_close(st);
         }
+        return;
     }
+
+    if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
+        if (ngx_anytls_uot_packet_resolved(st) != NGX_OK) {
+            ngx_anytls_stream_close(st);
+        }
+        return;
+    }
+
+    st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+    st->resolver_domain_len = 0;
+    st->resolver_port = 0;
 }
