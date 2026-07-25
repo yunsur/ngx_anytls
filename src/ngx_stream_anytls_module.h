@@ -137,13 +137,6 @@ struct ngx_anytls_stream_s {
     ngx_queue_t              uot_pending;
     ngx_uint_t               uot_pending_count;
     size_t                   uot_pending_bytes;
-    ngx_uint_t               uot_cached_valid;
-    u_char                   uot_cached_domain[256];
-    size_t                   uot_cached_domain_len;
-    uint16_t                 uot_cached_port;
-    struct sockaddr_storage  uot_cached_sockaddr;
-    socklen_t                uot_cached_socklen;
-    ngx_msec_t               uot_cached_expires;
     ngx_anytls_addr_mode_e   uot_mode;
     u_char                  *uot_recv_buf;
     size_t                   uot_recv_len;
@@ -167,8 +160,6 @@ typedef struct {
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
     size_t                   max_pending_output;
-    ngx_msec_t               dns_cache_ttl;
-    ngx_uint_t               dns_cache_size;
     ngx_resolver_t          *resolver;
     ngx_msec_t               resolver_timeout;
     ngx_msec_t               uot_timeout;

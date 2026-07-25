@@ -47,52 +47,6 @@ ngx_anytls_uot_resolve_addr(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
     return ngx_anytls_uot_resolve_sync(st, addr);
 }
 
-static ngx_uint_t
-ngx_anytls_uot_cache_lookup(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
-{
-    if (!st->uot_cached_valid || addr->has_sockaddr) {
-        return 0;
-    }
-
-    if (ngx_current_msec >= st->uot_cached_expires
-        || st->uot_cached_port != addr->port
-        || st->uot_cached_domain_len != addr->host.len
-        || ngx_memcmp(st->uot_cached_domain, addr->host.data, addr->host.len)
-           != 0)
-    {
-        return 0;
-    }
-
-    ngx_memzero(&addr->sockaddr, sizeof(addr->sockaddr));
-    ngx_memcpy(&addr->sockaddr, &st->uot_cached_sockaddr,
-               st->uot_cached_socklen);
-    addr->socklen = st->uot_cached_socklen;
-    addr->has_sockaddr = 1;
-
-    return 1;
-}
-
-static void
-ngx_anytls_uot_cache_store(ngx_anytls_stream_t *st, u_char *domain,
-    size_t domain_len, uint16_t port, struct sockaddr_storage *sockaddr,
-    socklen_t socklen)
-{
-    if (domain_len == 0 || domain_len > sizeof(st->uot_cached_domain)
-        || socklen == 0 || socklen > sizeof(st->uot_cached_sockaddr))
-    {
-        return;
-    }
-
-    ngx_memcpy(st->uot_cached_domain, domain, domain_len);
-    st->uot_cached_domain_len = domain_len;
-    st->uot_cached_port = port;
-    ngx_memzero(&st->uot_cached_sockaddr, sizeof(st->uot_cached_sockaddr));
-    ngx_memcpy(&st->uot_cached_sockaddr, sockaddr, socklen);
-    st->uot_cached_socklen = socklen;
-    st->uot_cached_expires = ngx_current_msec + st->ac->conf->dns_cache_ttl;
-    st->uot_cached_valid = 1;
-}
-
 static ngx_int_t
 ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
 {
@@ -314,10 +268,6 @@ ngx_anytls_uot_send_domain_packet(ngx_anytls_stream_t *st,
 {
     ngx_int_t rc;
 
-    if (ngx_anytls_uot_cache_lookup(st, addr)) {
-        return ngx_anytls_uot_send_resolved(st, addr, payload, payload_len);
-    }
-
     rc = ngx_anytls_uot_enqueue_pending(st, addr, payload, payload_len);
     if (rc != NGX_OK) {
         return rc;
@@ -416,18 +366,6 @@ ngx_anytls_uot_process_pending(ngx_anytls_stream_t *st)
         addr.host.len = pkt->domain_len;
         addr.port = pkt->port;
 
-        if (ngx_anytls_uot_cache_lookup(st, &addr)) {
-            rc = ngx_anytls_uot_flush_pending_domain(st, pkt->domain,
-                                                     pkt->domain_len,
-                                                     pkt->port,
-                                                     &addr.sockaddr,
-                                                     addr.socklen);
-            if (rc != NGX_OK) {
-                return rc;
-            }
-            continue;
-        }
-
         st->target = addr;
         rc = ngx_anytls_resolve_addr(st, NGX_ANYTLS_RESOLVE_UOT_PACKET,
                                      &st->target);
@@ -443,9 +381,6 @@ ngx_anytls_uot_process_pending(ngx_anytls_stream_t *st)
             continue;
         }
 
-        ngx_anytls_uot_cache_store(st, pkt->domain, pkt->domain_len,
-                                   pkt->port, &st->target.sockaddr,
-                                   st->target.socklen);
         rc = ngx_anytls_uot_flush_pending_domain(st, pkt->domain,
                                                  pkt->domain_len, pkt->port,
                                                  &st->target.sockaddr,
@@ -637,9 +572,6 @@ ngx_anytls_uot_packet_resolved(ngx_anytls_stream_t *st)
     }
     ngx_memcpy(domain, st->resolver_domain, domain_len);
     port = st->resolver_port;
-
-    ngx_anytls_uot_cache_store(st, domain, domain_len, port,
-                               &st->target.sockaddr, st->target.socklen);
 
     st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
     st->resolver_domain_len = 0;
