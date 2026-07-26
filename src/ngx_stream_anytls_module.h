@@ -165,8 +165,7 @@ struct ngx_anytls_stream_s {
     unsigned                 delayed_close:1;
     unsigned                 closed_by_protocol:1;
 
-    u_char                  *initial_data;
-    size_t                   initial_data_len;
+
 
     ngx_resolver_ctx_t      *resolver_ctx;
     ngx_uint_t               resolver_pending;

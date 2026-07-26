@@ -478,12 +478,6 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
         if (addr.mode == NGX_ANYTLS_ADDR_TCP) {
             if (payload_len) {
-                st->initial_data = ngx_pnalloc(ngx_anytls_stream_pool(st), payload_len);
-                if (st->initial_data == NULL) {
-                    return NGX_ERROR;
-                }
-                ngx_memcpy(st->initial_data, payload, payload_len);
-                st->initial_data_len = payload_len;
                 if (ngx_anytls_upstream_queue(st, payload, payload_len)
                     != NGX_OK)
                 {
