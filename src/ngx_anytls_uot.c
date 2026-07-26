@@ -22,7 +22,10 @@ ngx_anytls_uot_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
         return NGX_OK;
     }
 
-    if (ngx_anytls_addr_to_url(ngx_anytls_stream_pool(st), addr, &url) != NGX_OK
+    ngx_pool_t *pool;
+    pool = ngx_anytls_stream_pool(st);
+    if (pool == NULL) { return NGX_ERROR; }
+    if (ngx_anytls_addr_to_url(pool, addr, &url) != NGX_OK
         || url.naddrs == 0)
     {
         return NGX_ERROR;
@@ -77,7 +80,10 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     if (st->uot_recv_buf == NULL) {
         st->uot_recv_size = 65536;
-        st->uot_recv_buf = ngx_pnalloc(ngx_anytls_stream_pool(st), st->uot_recv_size);
+        ngx_pool_t *pool;
+        pool = ngx_anytls_stream_pool(st);
+        if (pool == NULL) { return NGX_ERROR; }
+        st->uot_recv_buf = ngx_pnalloc(pool, st->uot_recv_size);
         if (st->uot_recv_buf == NULL) {
             return NGX_ERROR;
         }
@@ -89,7 +95,10 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
             return NGX_ERROR;
         }
 
-        p = ngx_pnalloc(ngx_anytls_stream_pool(st), st->uot_recv_size);
+        ngx_pool_t *pool;
+        pool = ngx_anytls_stream_pool(st);
+        if (pool == NULL) { return NGX_ERROR; }
+        p = ngx_pnalloc(pool, st->uot_recv_size);
         if (p == NULL) {
             return NGX_ERROR;
         }
@@ -131,12 +140,15 @@ ngx_anytls_uot_enqueue_pending(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr,
         return NGX_OK;
     }
 
-    pkt = ngx_pcalloc(ngx_anytls_stream_pool(st), sizeof(ngx_anytls_uot_pending_t));
+    ngx_pool_t *pool;
+    pool = ngx_anytls_stream_pool(st);
+    if (pool == NULL) { return NGX_ERROR; }
+    pkt = ngx_pcalloc(pool, sizeof(ngx_anytls_uot_pending_t));
     if (pkt == NULL) {
         return NGX_ERROR;
     }
 
-    p = ngx_pnalloc(ngx_anytls_stream_pool(st), addr->host.len + payload_len);
+    p = ngx_pnalloc(pool, addr->host.len + payload_len);
     if (p == NULL) {
         return NGX_ERROR;
     }
@@ -229,6 +241,10 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
         st->udp_family = 0;
     }
 
+    if (ngx_anytls_stream_pool(st) == NULL) {
+        return NGX_ERROR;
+    }
+
     fd = ngx_socket((int) family, SOCK_DGRAM, 0);
     if (fd == (ngx_socket_t) -1) {
         return NGX_ERROR;
@@ -247,7 +263,6 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
 
     c->data = st;
     c->log = st->ac->log;
-    (void) ngx_anytls_stream_pool(st);
     c->pool = st->pool;
     c->read->handler = ngx_anytls_udp_read_handler;
     c->write->handler = ngx_anytls_udp_write_handler;
@@ -279,7 +294,10 @@ ngx_anytls_uot_upstream_state_open(ngx_anytls_stream_t *st,
         return NGX_OK;
     }
 
-    st->upstream_name.data = ngx_pnalloc(ngx_anytls_stream_pool(st), NGX_SOCKADDR_STRLEN);
+    ngx_pool_t *pool;
+    pool = ngx_anytls_stream_pool(st);
+    if (pool == NULL) { return NGX_ERROR; }
+    st->upstream_name.data = ngx_pnalloc(pool, NGX_SOCKADDR_STRLEN);
     if (st->upstream_name.data == NULL) {
         return NGX_ERROR;
     }
@@ -511,7 +529,10 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
             }
 
             is_connect = p[0];
-            rc = ngx_anytls_parse_socksaddr(ngx_anytls_stream_pool(st), p + 1, left - 1,
+            ngx_pool_t *pool;
+            pool = ngx_anytls_stream_pool(st);
+            if (pool == NULL) { return NGX_ERROR; }
+            rc = ngx_anytls_parse_socksaddr(pool, p + 1, left - 1,
                                             &st->target);
             if (rc == NGX_AGAIN) {
                 return NGX_OK;
@@ -567,8 +588,11 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     } else {
         while (left) {
-            rc = ngx_anytls_parse_uot_packet(ngx_anytls_stream_pool(st), p, left, &addr, &payload,
-                                         &payload_len, &consumed);
+            ngx_pool_t *pool;
+            pool = ngx_anytls_stream_pool(st);
+            if (pool == NULL) { return NGX_ERROR; }
+            rc = ngx_anytls_parse_uot_packet(pool, p, left, &addr, &payload,
+                                             &payload_len, &consumed);
             if (rc == NGX_AGAIN) {
                 break;
             }

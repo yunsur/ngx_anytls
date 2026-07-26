@@ -81,9 +81,11 @@ Per-stream read buffer size for upstream data. Controls how many bytes are read 
 
 - **Syntax:** `anytls_max_streams <number>;`
 - **Default:** `1024`
+- **Max:** `2048`
 - **Context:** `stream`, `server`
 
 Maximum concurrent multiplexed streams per AnyTLS connection.
+Values exceeding 2048 are clamped with a warning (hash table size limit).
 
 ### `anytls_max_pending_output`
 

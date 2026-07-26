@@ -212,7 +212,7 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             ac->remnant_len = 0;
             return rc;
         }
-pos += consumed;
+        pos += consumed;
 
         if (ac->input_paused) {
             break;
@@ -390,7 +390,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             return NGX_ERROR;
         }
         if (frame->stream_id == 0) {
-            return NGX_OK;
+            return NGX_ERROR;
         }
         if (ngx_anytls_stream_exists(ac, frame->stream_id)) {
             return NGX_OK;
@@ -459,7 +459,10 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
     size_t payload_len;
 
     if (!st->first_psh_seen) {
-        rc = ngx_anytls_parse_socksaddr(ngx_anytls_stream_pool(st), frame->data, frame->data_len,
+        ngx_pool_t *pool;
+        pool = ngx_anytls_stream_pool(st);
+        if (pool == NULL) { return NGX_ERROR; }
+        rc = ngx_anytls_parse_socksaddr(pool, frame->data, frame->data_len,
                                         &addr);
         if (rc != NGX_OK) {
             return rc;

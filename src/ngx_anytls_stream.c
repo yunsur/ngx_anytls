@@ -8,20 +8,22 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_state.h"
 
+#define NGX_ANYTLS_STREAM_HT_TOMB ((void *) 1)
+
 static ngx_anytls_stream_t *
 ngx_anytls_stream_ht_find(ngx_anytls_connection_t *ac, uint32_t id)
 {
-    uint32_t idx;
+    uint32_t idx, i;
     ngx_anytls_stream_t *st;
 
     idx = id & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
 
-    for (ngx_uint_t i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
+    for (i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
         st = ac->stream_ht[idx];
         if (st == NULL) {
             return NULL;
         }
-        if (st->id == id) {
+        if (st != NGX_ANYTLS_STREAM_HT_TOMB && st->id == id) {
             return st;
         }
         idx = (idx + 1) & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
@@ -31,19 +33,25 @@ ngx_anytls_stream_ht_find(ngx_anytls_connection_t *ac, uint32_t id)
 }
 
 
-static void
+static ngx_int_t
 ngx_anytls_stream_ht_insert(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    uint32_t idx;
+    uint32_t idx, i;
 
     idx = st->id & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
 
-    while (ac->stream_ht[idx] != NULL) {
+    for (i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
+        if (ac->stream_ht[idx] == NULL
+            || ac->stream_ht[idx] == NGX_ANYTLS_STREAM_HT_TOMB)
+        {
+            ac->stream_ht[idx] = st;
+            return NGX_OK;
+        }
         idx = (idx + 1) & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
     }
 
-    ac->stream_ht[idx] = st;
+    return NGX_ERROR;
 }
 
 
@@ -51,13 +59,13 @@ static void
 ngx_anytls_stream_ht_remove(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    uint32_t idx;
+    uint32_t idx, i;
 
     idx = st->id & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
 
-    for (ngx_uint_t i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
+    for (i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
         if (ac->stream_ht[idx] == st) {
-            ac->stream_ht[idx] = NULL;
+            ac->stream_ht[idx] = NGX_ANYTLS_STREAM_HT_TOMB;
             return;
         }
         idx = (idx + 1) & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
@@ -112,7 +120,9 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
     ngx_queue_init(&st->link);
     ngx_queue_init(&st->uot_pending);
 
-    ngx_anytls_stream_ht_insert(ac, st);
+    if (ngx_anytls_stream_ht_insert(ac, st) != NGX_OK) {
+        return NULL;
+    }
     ngx_queue_insert_tail(&ac->stream_list, &st->link);
     ac->active_streams++;
 
