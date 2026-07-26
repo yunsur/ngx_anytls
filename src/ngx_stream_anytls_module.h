@@ -136,6 +136,7 @@ struct ngx_anytls_stream_s {
 
     ngx_queue_t              ready_queue;
     ngx_queue_t              link;
+    ngx_queue_t              upstream_block;
 
     ngx_peer_connection_t    peer;
     ngx_connection_t        *upstream;
@@ -222,7 +223,9 @@ struct ngx_anytls_connection_s {
     ngx_anytls_stream_t     *stream_ht[NGX_ANYTLS_STREAM_HT_SIZE];
     ngx_queue_t              stream_list;
     ngx_queue_t              ready_streams;
+    ngx_queue_t              blocked_upstream_reads;
     ngx_uint_t               active_streams;
+    ngx_uint_t               blocked_input_streams;
 
     ngx_anytls_out_frame_t  *last_out;
     ngx_anytls_out_frame_t **last_out_last;

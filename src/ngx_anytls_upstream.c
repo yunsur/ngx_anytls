@@ -36,6 +36,8 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
     st->upstream_read_blocked = 1;
     rev->ready = 0;
 
+    ngx_queue_insert_tail(&st->ac->blocked_upstream_reads, &st->upstream_block);
+
     if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
         return NGX_ERROR;
     }
@@ -50,6 +52,7 @@ ngx_anytls_upstream_block_input(ngx_anytls_stream_t *st)
     if (!st->input_blocked) {
         st->input_blocked = 1;
         st->input_exhausted = 1;
+        st->ac->blocked_input_streams++;
 
         ngx_log_debug3(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
                        "anytls: stream %ui input blocked, pending:%uz "
@@ -78,6 +81,7 @@ ngx_anytls_upstream_update_input_state(ngx_anytls_stream_t *st)
 
     st->input_blocked = 0;
     st->input_exhausted = 0;
+    st->ac->blocked_input_streams--;
 
     ngx_log_debug3(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
                    "anytls: stream %ui input unblocked, pending:%uz "
@@ -113,6 +117,8 @@ ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
     st->pending_in_bytes = 0;
     st->input_blocked = 0;
     st->input_exhausted = 0;
+    st->ac->blocked_input_streams--;
+    st->ac->blocked_input_streams--;
 
     (void) ngx_anytls_resume_input(st->ac);
 }

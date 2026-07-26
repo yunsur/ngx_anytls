@@ -59,6 +59,7 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
 
     ngx_queue_init(&ac->stream_list);
     ngx_queue_init(&ac->ready_streams);
+    ngx_queue_init(&ac->blocked_upstream_reads);
 
     ngx_stream_set_ctx(s, ac, ngx_stream_anytls_module);
     c->data = s;
@@ -277,21 +278,7 @@ ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac)
 static ngx_uint_t
 ngx_anytls_input_blocked(ngx_anytls_connection_t *ac)
 {
-    ngx_queue_t         *q;
-    ngx_anytls_stream_t *st;
-
-    for (q = ngx_queue_head(&ac->stream_list);
-         q != ngx_queue_sentinel(&ac->stream_list);
-         q = ngx_queue_next(q))
-    {
-        st = ngx_queue_data(q, ngx_anytls_stream_t, link);
-
-        if (st->input_blocked) {
-            return 1;
-        }
-    }
-
-    return 0;
+    return ac->blocked_input_streams > 0;
 }
 
 ngx_int_t

@@ -118,6 +118,7 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
     st->out_last = &st->out;
     ngx_queue_init(&st->ready_queue);
     ngx_queue_init(&st->link);
+    ngx_queue_init(&st->upstream_block);
     ngx_queue_init(&st->uot_pending);
 
     if (ngx_anytls_stream_ht_insert(ac, st) != NGX_OK) {
