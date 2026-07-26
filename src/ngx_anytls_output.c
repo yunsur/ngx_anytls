@@ -296,8 +296,6 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         ngx_anytls_write_frame_header(header, cmd, stream_id, 0);
         n = ac->client->send(ac->client, header, NGX_ANYTLS_FRAME_HEADER_LEN);
         if (n == NGX_ANYTLS_FRAME_HEADER_LEN) {
-            ac->pending_output += NGX_ANYTLS_FRAME_HEADER_LEN;
-
             if (st) {
                 if (cmd == NGX_ANYTLS_CMD_FIN) {
                     st->fin_queued = 1;

@@ -399,6 +399,9 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             (void) ngx_anytls_flush(ac);
             return NGX_ERROR;
         }
+        if (frame->stream_id == 0) {
+            return NGX_OK;
+        }
         if (ngx_anytls_stream_exists(ac, frame->stream_id)) {
             return NGX_OK;
         }
