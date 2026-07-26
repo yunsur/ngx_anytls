@@ -101,11 +101,6 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     write_off = st->uot_recv_pos + st->uot_recv_len;
     if (len > st->uot_recv_size - write_off) {
-        n = write_off + len;
-        if (n > 65536) {
-            return NGX_ERROR;
-        }
-
         if (st->uot_recv_pos) {
             if (st->uot_recv_len) {
                 ngx_memmove(st->uot_recv_buf,
@@ -114,6 +109,11 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
             }
             write_off = st->uot_recv_len;
             st->uot_recv_pos = 0;
+        }
+
+        n = write_off + len;
+        if (n > 65536) {
+            return NGX_ERROR;
         }
 
         if (len > st->uot_recv_size - write_off) {

@@ -122,10 +122,11 @@ ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
     st->pending_in_bytes = 0;
     if (st->input_blocked) {
         st->input_blocked = 0;
-        st->ac->blocked_input_streams--;
+        st->input_exhausted = 0;
+        if (st->ac->blocked_input_streams) {
+            st->ac->blocked_input_streams--;
+        }
     }
-    st->input_exhausted = 0;
-    st->ac->blocked_input_streams--;
 
     (void) ngx_anytls_resume_input(st->ac);
 }
