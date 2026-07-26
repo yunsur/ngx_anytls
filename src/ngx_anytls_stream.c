@@ -89,7 +89,6 @@ ngx_anytls_stream_exists(ngx_anytls_connection_t *ac, uint32_t id)
 ngx_anytls_stream_t *
 ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
 {
-    ngx_pool_t *pool;
     ngx_anytls_stream_t *st;
 
     if (ac->active_streams >= ac->conf->max_streams
@@ -98,18 +97,12 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
         return NULL;
     }
 
-    pool = ngx_create_pool(NGX_ANYTLS_STREAM_POOL_SIZE, ac->log);
-    if (pool == NULL) {
-        return NULL;
-    }
-
-    st = ngx_pcalloc(pool, sizeof(ngx_anytls_stream_t));
+    st = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_stream_t));
     if (st == NULL) {
-        ngx_destroy_pool(pool);
         return NULL;
     }
 
-    st->pool = pool;
+    st->pool = NULL;
     st->ac = ac;
     st->id = id;
     st->state = NGX_ANYTLS_STREAM_INIT;
@@ -173,7 +166,11 @@ void
 ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st)
 {
     if (!st->queued) {
-        ngx_queue_insert_tail(&st->ac->ready_streams, &st->ready_queue);
+        if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
+            ngx_queue_insert_head(&st->ac->ready_streams, &st->ready_queue);
+        } else {
+            ngx_queue_insert_tail(&st->ac->ready_streams, &st->ready_queue);
+        }
         st->queued = 1;
     }
 }
@@ -280,5 +277,5 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     ngx_anytls_stream_ht_remove(ac, st);
     ngx_queue_remove(&st->link);
     ac->active_streams--;
-    ngx_destroy_pool(st->pool);
+    if (st->pool) { ngx_destroy_pool(st->pool); }
 }

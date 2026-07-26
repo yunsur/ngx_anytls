@@ -22,7 +22,7 @@ ngx_anytls_uot_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
         return NGX_OK;
     }
 
-    if (ngx_anytls_addr_to_url(st->pool, addr, &url) != NGX_OK
+    if (ngx_anytls_addr_to_url(ngx_anytls_stream_pool(st), addr, &url) != NGX_OK
         || url.naddrs == 0)
     {
         return NGX_ERROR;
@@ -77,7 +77,7 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     if (st->uot_recv_buf == NULL) {
         st->uot_recv_size = 65536;
-        st->uot_recv_buf = ngx_pnalloc(st->pool, st->uot_recv_size);
+        st->uot_recv_buf = ngx_pnalloc(ngx_anytls_stream_pool(st), st->uot_recv_size);
         if (st->uot_recv_buf == NULL) {
             return NGX_ERROR;
         }
@@ -89,7 +89,7 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
             return NGX_ERROR;
         }
 
-        p = ngx_pnalloc(st->pool, st->uot_recv_size);
+        p = ngx_pnalloc(ngx_anytls_stream_pool(st), st->uot_recv_size);
         if (p == NULL) {
             return NGX_ERROR;
         }
@@ -131,12 +131,12 @@ ngx_anytls_uot_enqueue_pending(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr,
         return NGX_OK;
     }
 
-    pkt = ngx_pcalloc(st->pool, sizeof(ngx_anytls_uot_pending_t));
+    pkt = ngx_pcalloc(ngx_anytls_stream_pool(st), sizeof(ngx_anytls_uot_pending_t));
     if (pkt == NULL) {
         return NGX_ERROR;
     }
 
-    p = ngx_pnalloc(st->pool, addr->host.len + payload_len);
+    p = ngx_pnalloc(ngx_anytls_stream_pool(st), addr->host.len + payload_len);
     if (p == NULL) {
         return NGX_ERROR;
     }
@@ -247,6 +247,7 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
 
     c->data = st;
     c->log = st->ac->log;
+    (void) ngx_anytls_stream_pool(st);
     c->pool = st->pool;
     c->read->handler = ngx_anytls_udp_read_handler;
     c->write->handler = ngx_anytls_udp_write_handler;
@@ -278,7 +279,7 @@ ngx_anytls_uot_upstream_state_open(ngx_anytls_stream_t *st,
         return NGX_OK;
     }
 
-    st->upstream_name.data = ngx_pnalloc(st->pool, NGX_SOCKADDR_STRLEN);
+    st->upstream_name.data = ngx_pnalloc(ngx_anytls_stream_pool(st), NGX_SOCKADDR_STRLEN);
     if (st->upstream_name.data == NULL) {
         return NGX_ERROR;
     }
@@ -510,7 +511,7 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
             }
 
             is_connect = p[0];
-            rc = ngx_anytls_parse_socksaddr(st->pool, p + 1, left - 1,
+            rc = ngx_anytls_parse_socksaddr(ngx_anytls_stream_pool(st), p + 1, left - 1,
                                             &st->target);
             if (rc == NGX_AGAIN) {
                 return NGX_OK;
@@ -566,7 +567,7 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     } else {
         while (left) {
-            rc = ngx_anytls_parse_uot_packet(st->pool, p, left, &addr, &payload,
+            rc = ngx_anytls_parse_uot_packet(ngx_anytls_stream_pool(st), p, left, &addr, &payload,
                                          &payload_len, &consumed);
             if (rc == NGX_AGAIN) {
                 break;

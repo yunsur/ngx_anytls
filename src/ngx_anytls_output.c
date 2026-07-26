@@ -278,6 +278,8 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
     ngx_uint_t cmd, uint32_t stream_id, u_char *data, size_t len)
 {
     ngx_anytls_out_frame_t *f;
+    u_char  header[NGX_ANYTLS_FRAME_HEADER_LEN];
+    ssize_t n;
 
     if (len > NGX_ANYTLS_MAX_FRAME_DATA) {
         return NGX_ERROR;
@@ -285,6 +287,31 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
     if (cmd == NGX_ANYTLS_CMD_PSH && !ngx_anytls_output_has_room(ac, len)) {
         return NGX_AGAIN;
+    }
+
+    if (len == 0 && cmd != NGX_ANYTLS_CMD_PSH
+        && ac->last_out == NULL && ac->unsent == NULL
+        && !ac->write_pending && !ac->client->error)
+    {
+        ngx_anytls_write_frame_header(header, cmd, stream_id, 0);
+        n = ac->client->send(ac->client, header, NGX_ANYTLS_FRAME_HEADER_LEN);
+        if (n == NGX_ANYTLS_FRAME_HEADER_LEN) {
+            ac->pending_output += NGX_ANYTLS_FRAME_HEADER_LEN;
+
+            if (st) {
+                if (cmd == NGX_ANYTLS_CMD_FIN) {
+                    st->fin_queued = 1;
+                    st->fin_sent = 1;
+                    st->out_closed = 1;
+                }
+            }
+
+            return NGX_OK;
+        }
+
+        if (n != NGX_AGAIN) {
+            return NGX_ERROR;
+        }
     }
 
     f = ngx_anytls_get_frame(ac);

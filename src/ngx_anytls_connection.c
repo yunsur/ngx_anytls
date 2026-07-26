@@ -466,7 +466,7 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
     size_t payload_len;
 
     if (!st->first_psh_seen) {
-        rc = ngx_anytls_parse_socksaddr(st->pool, frame->data, frame->data_len,
+        rc = ngx_anytls_parse_socksaddr(ngx_anytls_stream_pool(st), frame->data, frame->data_len,
                                         &addr);
         if (rc != NGX_OK) {
             return rc;
@@ -478,7 +478,7 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
         if (addr.mode == NGX_ANYTLS_ADDR_TCP) {
             if (payload_len) {
-                st->initial_data = ngx_pnalloc(st->pool, payload_len);
+                st->initial_data = ngx_pnalloc(ngx_anytls_stream_pool(st), payload_len);
                 if (st->initial_data == NULL) {
                     return NGX_ERROR;
                 }

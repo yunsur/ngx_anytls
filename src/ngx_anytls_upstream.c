@@ -248,7 +248,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
         return NGX_ERROR;
     }
 
-    st->upstream_name.data = ngx_pnalloc(st->pool, NGX_SOCKADDR_STRLEN);
+    st->upstream_name.data = ngx_pnalloc(ngx_anytls_stream_pool(st), NGX_SOCKADDR_STRLEN);
     if (st->upstream_name.data == NULL) {
         return NGX_ERROR;
     }
@@ -284,6 +284,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
 
     c = pc->connection;
     c->data = st;
+    (void) ngx_anytls_stream_pool(st);
     c->pool = st->pool;
     c->log = st->ac->log;
     c->read->handler = ngx_anytls_upstream_read_handler;
@@ -351,7 +352,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
         st->free_pending_in_count--;
         ngx_memzero(p, sizeof(ngx_anytls_pending_t));
     } else {
-        p = ngx_pcalloc(st->pool, sizeof(ngx_anytls_pending_t));
+        p = ngx_pcalloc(ngx_anytls_stream_pool(st), sizeof(ngx_anytls_pending_t));
     }
     if (p == NULL) {
         return NGX_ERROR;

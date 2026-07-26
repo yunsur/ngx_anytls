@@ -15,7 +15,7 @@ ngx_anytls_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
     ngx_url_t url;
 
-    if (ngx_anytls_addr_to_url(st->pool, addr, &url) != NGX_OK
+    if (ngx_anytls_addr_to_url(ngx_anytls_stream_pool(st), addr, &url) != NGX_OK
         || url.naddrs == 0)
     {
         return NGX_ERROR;
@@ -65,7 +65,7 @@ ngx_anytls_resolve_addr(ngx_anytls_stream_t *st,
         return ngx_anytls_resolve_sync(st, addr);
     }
 
-    resolve->name.data = ngx_pnalloc(st->pool, addr->host.len);
+    resolve->name.data = ngx_pnalloc(ngx_anytls_stream_pool(st), addr->host.len);
     if (resolve->name.data == NULL) {
         ngx_resolve_name_done(resolve);
         return NGX_ERROR;
