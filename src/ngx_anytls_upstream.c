@@ -166,14 +166,22 @@ typedef struct {
 static void *
 ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac, size_t len)
 {
-    ngx_anytls_pending_buf_hdr_t *hdr;
+    ngx_anytls_pending_buf_hdr_t *hdr, *prev;
 
-    for (hdr = ac->free_pending_bufs; hdr; hdr = hdr->next) {
+    prev = NULL;
+    hdr = ac->free_pending_bufs;
+    while (hdr) {
         if (hdr->cap >= len) {
-            ac->free_pending_bufs = hdr->next;
+            if (prev) {
+                prev->next = hdr->next;
+            } else {
+                ac->free_pending_bufs = hdr->next;
+            }
             ac->free_pending_bufs_count--;
             return hdr + 1;
         }
+        prev = hdr;
+        hdr = hdr->next;
     }
 
     hdr = ngx_alloc(sizeof(ngx_anytls_pending_buf_hdr_t) + len, ac->log);
