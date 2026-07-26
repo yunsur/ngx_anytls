@@ -268,10 +268,12 @@ ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac)
         return NGX_ERROR;
     }
 
-    if (!rev->ready) {
-        rev->ready = 1;
+    if (ac->remnant_len) {
+        if (!rev->ready) {
+            rev->ready = 1;
+        }
+        ngx_post_event(rev, &ngx_posted_events);
     }
-    ngx_post_event(rev, &ngx_posted_events);
 
     return NGX_OK;
 }
