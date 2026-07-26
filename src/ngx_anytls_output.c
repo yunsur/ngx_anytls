@@ -439,6 +439,9 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
     if (ac->active_streams > min_frames * 4) {
         min_frames = ac->active_streams / 4;
     }
+    if (min_frames > 256) {
+        min_frames = 256;
+    }
 
     while (!ngx_queue_empty(&ac->ready_streams)
            && (frames < min_frames

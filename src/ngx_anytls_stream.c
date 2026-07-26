@@ -235,7 +235,18 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
         ngx_anytls_upstream_discard_pending(st);
         ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
+        if (st->upstream_read_blocked) {
+            ngx_queue_remove(&st->upstream_block);
+            ngx_queue_init(&st->upstream_block);
+            st->upstream_read_blocked = 0;
+        }
         return;
+    }
+
+    if (st->upstream_read_blocked) {
+        ngx_queue_remove(&st->upstream_block);
+        ngx_queue_init(&st->upstream_block);
+        st->upstream_read_blocked = 0;
     }
 
     st->state = NGX_ANYTLS_STREAM_CLOSED;
@@ -285,6 +296,11 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     ngx_anytls_upstream_discard_pending(st);
 
+    if (st->upstream_read_blocked) {
+        ngx_queue_remove(&st->upstream_block);
+        ngx_queue_init(&st->upstream_block);
+        st->upstream_read_blocked = 0;
+    }
     ngx_anytls_stream_ht_remove(ac, st);
     ngx_queue_remove(&st->link);
     ac->active_streams--;
