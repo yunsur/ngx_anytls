@@ -423,6 +423,8 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
     ngx_uint_t frames;
     size_t bytes, byte_budget;
 
+    ngx_uint_t min_frames;
+
     frames = 0;
     bytes = 0;
     byte_budget = ac->conf->max_pending_output / 4;
@@ -433,8 +435,13 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
         byte_budget = NGX_ANYTLS_MAX_FRAME_DATA;
     }
 
+    min_frames = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
+    if (ac->active_streams > min_frames * 4) {
+        min_frames = ac->active_streams / 4;
+    }
+
     while (!ngx_queue_empty(&ac->ready_streams)
-           && (frames < NGX_ANYTLS_MIN_SCHEDULE_FRAMES
+           && (frames < min_frames
                || bytes < byte_budget))
     {
         q = ngx_queue_head(&ac->ready_streams);

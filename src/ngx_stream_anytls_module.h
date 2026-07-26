@@ -41,7 +41,7 @@ extern ngx_module_t ngx_stream_anytls_module;
     "7=500-1000\n"
 
 
-#define NGX_ANYTLS_MAX_DIRECT_FRAMES 8
+#define NGX_ANYTLS_MAX_DIRECT_FRAMES 4
 
 typedef enum {
     NGX_ANYTLS_CONN_AUTH = 0,
