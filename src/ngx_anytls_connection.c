@@ -479,7 +479,7 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
             return rc;
         }
         st->first_psh_seen = 1;
-        st->target = addr;
+        ngx_anytls_addr_copy(&st->target, &addr);
         payload = frame->data + addr.consumed;
         payload_len = frame->data_len - addr.consumed;
 

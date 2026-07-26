@@ -32,4 +32,14 @@ ngx_int_t ngx_anytls_parse_uot_packet(ngx_pool_t *pool, u_char *data,
 ngx_int_t ngx_anytls_addr_to_url(ngx_pool_t *pool, ngx_anytls_addr_t *addr,
     ngx_url_t *url);
 
+static ngx_inline void
+ngx_anytls_addr_copy(ngx_anytls_addr_t *dst, ngx_anytls_addr_t *src)
+{
+    *dst = *src;
+    if (src->host.data == src->host_buf) {
+        ngx_memcpy(dst->host_buf, src->host_buf, sizeof(dst->host_buf));
+        dst->host.data = dst->host_buf;
+    }
+}
+
 #endif

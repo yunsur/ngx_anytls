@@ -233,7 +233,7 @@ ngx_anytls_upstream_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
     ngx_int_t              rc;
 
-    st->target = *addr;
+    ngx_anytls_addr_copy(&st->target, addr);
 
     rc = ngx_anytls_resolve_addr(st, NGX_ANYTLS_RESOLVE_TCP, &st->target);
     if (rc == NGX_AGAIN) {
