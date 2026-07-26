@@ -165,7 +165,8 @@ struct ngx_anytls_stream_s {
     unsigned                 delayed_close:1;
     unsigned                 closed_by_protocol:1;
 
-
+    u_char                  *initial_data;
+    size_t                   initial_data_len;
 
     ngx_resolver_ctx_t      *resolver_ctx;
     ngx_uint_t               resolver_pending;
@@ -240,10 +241,8 @@ struct ngx_anytls_connection_s {
 
     u_char                  *read_buf;
     size_t                   read_buf_size;
-    u_char                  *in;
-    u_char                  *in_pos;
-    u_char                  *in_last;
-    size_t                   in_size;
+
+    size_t                   remnant_len;
 
     u_char                   auth[NGX_ANYTLS_AUTH_BUF_SIZE];
     size_t                   auth_len;

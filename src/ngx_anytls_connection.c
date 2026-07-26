@@ -44,20 +44,16 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
                         NGX_ANYTLS_FRAME_HEADER_LEN
                         + NGX_ANYTLS_MAX_FRAME_DATA);
     ac->read_buf_size = read_size;
-    ac->in_size = read_size + NGX_ANYTLS_FRAME_HEADER_LEN
-                  + NGX_ANYTLS_MAX_FRAME_DATA;
-    ac->in = ngx_pnalloc(c->pool, ac->in_size);
-    if (ac->in == NULL) {
-        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
-        return;
-    }
-    ac->read_buf = ngx_pnalloc(c->pool, ac->read_buf_size);
+    /* read_buf serves dual purpose: recv target AND remnant storage.
+     * Must be large enough to hold remnant (up to one full frame)
+     * plus a full recv. */
+    ac->read_buf = ngx_pnalloc(c->pool,
+                               read_size + NGX_ANYTLS_FRAME_HEADER_LEN
+                               + NGX_ANYTLS_MAX_FRAME_DATA);
     if (ac->read_buf == NULL) {
         ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
-    ac->in_pos = ac->in;
-    ac->in_last = ac->in;
     ac->last_out_last = &ac->last_out;
     ac->sending_last = &ac->sending;
 
@@ -172,11 +168,10 @@ ngx_int_t
 ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     size_t len)
 {
-    size_t consumed, used;
+    u_char *pos, *last;
     ngx_int_t rc;
     ngx_anytls_frame_t frame;
-
-    used = 0;
+    size_t consumed;
 
     if (!ac->authenticated) {
         if (data == NULL) {
@@ -186,7 +181,6 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
         rc = ngx_anytls_process_auth(ac, data, len, &consumed);
         data += consumed;
         len -= consumed;
-        used += consumed;
 
         if (rc == NGX_AGAIN || rc == NGX_DONE) {
             return NGX_OK;
@@ -196,47 +190,41 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
         }
     }
 
-    if (len) {
-        if ((size_t) (ac->in_last - ac->in) + len > ac->in_size) {
-            if (ac->in_pos != ac->in) {
-                ngx_memmove(ac->in, ac->in_pos,
-                            (size_t) (ac->in_last - ac->in_pos));
-                ac->in_last = ac->in + (ac->in_last - ac->in_pos);
-                ac->in_pos = ac->in;
-            }
-            if ((size_t) (ac->in_last - ac->in) + len > ac->in_size) {
-                return NGX_ERROR;
-            }
-        }
-        ac->in_last = ngx_cpymem(ac->in_last, data, len);
+    if (len == 0) {
+        return NGX_OK;
     }
 
+    pos = data;
+    last = data + len;
+
     for ( ;; ) {
-        rc = ngx_anytls_parse_frame(ac->in_pos, ac->in_last, &frame, &consumed);
+        rc = ngx_anytls_parse_frame(pos, last, &frame, &consumed);
         if (rc == NGX_AGAIN) {
             break;
         }
         if (rc != NGX_OK) {
+            ac->remnant_len = 0;
             return NGX_ERROR;
         }
 
         rc = ngx_anytls_handle_frame(ac, &frame);
         if (rc != NGX_OK) {
+            ac->remnant_len = 0;
             return rc;
         }
-        ac->in_pos += consumed;
+pos += consumed;
 
         if (ac->input_paused) {
             break;
         }
     }
 
-    if (ac->in_pos == ac->in_last) {
-        ac->in_pos = ac->in;
-        ac->in_last = ac->in;
+    /* Compact any incomplete frame to start of read_buf (remnant) */
+    ac->remnant_len = (size_t) (last - pos);
+    if (ac->remnant_len) {
+        ngx_memmove(ac->read_buf, pos, ac->remnant_len);
     }
 
-    (void) used;
     return NGX_OK;
 }
 
@@ -327,8 +315,10 @@ ngx_anytls_resume_input(ngx_anytls_connection_t *ac)
 
     ac->input_paused = 0;
 
-    if (ac->in_pos != ac->in_last) {
-        rc = ngx_anytls_process_client_bytes(ac, NULL, 0);
+    if (ac->remnant_len) {
+        size_t save = ac->remnant_len;
+        ac->remnant_len = 0;
+        rc = ngx_anytls_process_client_bytes(ac, ac->read_buf, save);
         if (rc != NGX_OK) {
             return rc;
         }
@@ -519,6 +509,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     ngx_anytls_connection_t *ac;
     u_char *buf;
     ssize_t n;
+    ngx_int_t rc;
 
     c = rev->data;
 
@@ -553,7 +544,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     buf = ac->read_buf;
 
     for ( ;; ) {
-        n = c->recv(c, buf, ac->read_buf_size);
+        n = c->recv(c, buf + ac->remnant_len, ac->read_buf_size);
         if (n == NGX_AGAIN) {
             break;
         }
@@ -567,7 +558,14 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
             return;
         }
 
-        if (ngx_anytls_process_client_bytes(ac, buf, (size_t) n) != NGX_OK) {
+        if (ac->remnant_len) {
+            size_t total = ac->remnant_len + (size_t) n;
+            ac->remnant_len = 0;
+            rc = ngx_anytls_process_client_bytes(ac, buf, total);
+        } else {
+            rc = ngx_anytls_process_client_bytes(ac, buf, (size_t) n);
+        }
+        if (rc != NGX_OK) {
             if (ac->state != NGX_ANYTLS_CONN_FALLBACK) {
                 ngx_anytls_finalize(ac);
             }
