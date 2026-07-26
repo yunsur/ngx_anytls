@@ -139,7 +139,7 @@ ngx_anytls_upstream_free_pending(ngx_anytls_stream_t *st,
 
 
 ngx_chain_t *
-ngx_anytls_upstream_get_read_buf(ngx_anytls_stream_t *st, size_t size)
+ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
 {
     ngx_chain_t *cl, **ll;
     ngx_buf_t   *b;
@@ -147,13 +147,13 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_stream_t *st, size_t size)
 
     capacity = size + NGX_ANYTLS_FRAME_HEADER_LEN;
 
-    for (ll = &st->free_read_bufs; *ll; ll = &(*ll)->next) {
+    for (ll = &ac->free_read_bufs; *ll; ll = &(*ll)->next) {
         cl = *ll;
         b = cl->buf;
 
         if ((size_t) (b->end - b->start) >= capacity) {
             *ll = cl->next;
-            st->free_read_bufs_count--;
+            ac->free_read_bufs_count--;
             cl->next = NULL;
             b->pos = b->start + NGX_ANYTLS_FRAME_HEADER_LEN;
             b->last = b->pos;
@@ -161,20 +161,25 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_stream_t *st, size_t size)
         }
     }
 
-    cl = ngx_alloc_chain_link(st->pool);
+    cl = ngx_alloc(sizeof(ngx_chain_t), ac->log);
     if (cl == NULL) {
         return NULL;
     }
-    b = ngx_calloc_buf(st->pool);
+
+    b = ngx_alloc(sizeof(ngx_buf_t), ac->log);
     if (b == NULL) {
+        ngx_free(cl);
         return NULL;
     }
+
+    ngx_memzero(b, sizeof(ngx_buf_t));
     cl->buf = b;
     cl->next = NULL;
 
-    b = cl->buf;
-    b->start = ngx_pnalloc(st->pool, capacity);
+    b->start = ngx_alloc(capacity, ac->log);
     if (b->start == NULL) {
+        ngx_free(b);
+        ngx_free(cl);
         return NULL;
     }
 
@@ -188,18 +193,23 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_stream_t *st, size_t size)
 
 
 void
-ngx_anytls_upstream_free_read_buf(ngx_anytls_stream_t *st, ngx_chain_t *cl)
+ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac, ngx_chain_t *cl)
 {
-    if (st == NULL || cl == NULL || st->state == NGX_ANYTLS_STREAM_CLOSED) {
+    if (ac == NULL || cl == NULL) {
         return;
     }
 
-    if (st->free_read_bufs_count < NGX_ANYTLS_MAX_FREE_READ_BUFS) {
+    if (ac->free_read_bufs_count < NGX_ANYTLS_MAX_FREE_READ_BUFS) {
         cl->buf->pos = cl->buf->start + NGX_ANYTLS_FRAME_HEADER_LEN;
         cl->buf->last = cl->buf->pos;
-        cl->next = st->free_read_bufs;
-        st->free_read_bufs = cl;
-        st->free_read_bufs_count++;
+        cl->next = ac->free_read_bufs;
+        ac->free_read_bufs = cl;
+        ac->free_read_bufs_count++;
+
+    } else {
+        ngx_free(cl->buf->start);
+        ngx_free(cl->buf);
+        ngx_free(cl);
     }
 }
 
@@ -296,7 +306,6 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
 
     return NGX_OK;
 }
-
 ngx_int_t
 ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
 {
@@ -485,7 +494,7 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
             return;
         }
 
-        cl = ngx_anytls_upstream_get_read_buf(st, size);
+        cl = ngx_anytls_upstream_get_read_buf(st->ac, size);
         if (cl == NULL) {
             ngx_anytls_stream_close(st);
             return;
@@ -494,11 +503,11 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
 
         n = c->recv(c, b->last, size);
         if (n == NGX_AGAIN) {
-            ngx_anytls_upstream_free_read_buf(st, cl);
+            ngx_anytls_upstream_free_read_buf(st->ac, cl);
             break;
         }
         if (n == 0) {
-            ngx_anytls_upstream_free_read_buf(st, cl);
+            ngx_anytls_upstream_free_read_buf(st->ac, cl);
             ngx_close_connection(c);
             st->upstream = NULL;
 
@@ -508,7 +517,7 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
             return;
         }
         if (n == NGX_ERROR) {
-            ngx_anytls_upstream_free_read_buf(st, cl);
+            ngx_anytls_upstream_free_read_buf(st->ac, cl);
             ngx_anytls_stream_close(st);
             return;
         }
@@ -517,14 +526,14 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
         rc = ngx_anytls_queue_chain_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
                                           st->id, cl, (size_t) n, 1);
         if (rc == NGX_AGAIN) {
-            ngx_anytls_upstream_free_read_buf(st, cl);
+            ngx_anytls_upstream_free_read_buf(st->ac, cl);
             if (ngx_anytls_upstream_block_read(st, rev) != NGX_OK) {
                 ngx_anytls_stream_close(st);
             }
             return;
         }
         if (rc != NGX_OK) {
-            ngx_anytls_upstream_free_read_buf(st, cl);
+            ngx_anytls_upstream_free_read_buf(st->ac, cl);
             ngx_anytls_stream_close(st);
             return;
         }

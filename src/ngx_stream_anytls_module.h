@@ -40,6 +40,11 @@ extern ngx_module_t ngx_stream_anytls_module;
     "6=500-1000\n"                                                         \
     "7=500-1000\n"
 
+#define NGX_ANYTLS_STREAM_HT_BITS 11
+#define NGX_ANYTLS_STREAM_HT_SIZE (1 << NGX_ANYTLS_STREAM_HT_BITS)
+
+#define NGX_ANYTLS_MAX_DIRECT_FRAMES 8
+
 typedef enum {
     NGX_ANYTLS_CONN_AUTH = 0,
     NGX_ANYTLS_CONN_SETTINGS,
@@ -122,20 +127,20 @@ typedef struct {
 } ngx_anytls_uot_pending_t;
 
 struct ngx_anytls_stream_s {
-    ngx_rbtree_node_t        node;
-    ngx_queue_t              ready_queue;
-    ngx_queue_t              link;
-    ngx_anytls_connection_t *ac;
-    ngx_pool_t              *pool;
     uint32_t                 id;
     ngx_anytls_stream_state_e state;
+    ngx_anytls_connection_t *ac;
     ngx_anytls_upstream_type_e upstream_type;
+    ngx_anytls_addr_t        target;
+    ngx_pool_t              *pool;
+
+    ngx_queue_t              ready_queue;
+    ngx_queue_t              link;
 
     ngx_peer_connection_t    peer;
     ngx_connection_t        *upstream;
     ngx_str_t                upstream_name;
     ngx_anytls_upstream_state_tracker_t upstream_state;
-    ngx_chain_t             *free_read_bufs;
     ngx_anytls_pending_t    *pending_in;
     ngx_anytls_pending_t   **pending_in_last;
     ngx_anytls_pending_t    *free_pending_in;
@@ -145,8 +150,8 @@ struct ngx_anytls_stream_s {
     ngx_anytls_out_frame_t **out_last;
     size_t                   pending_out;
     ngx_uint_t               queued_frames;
-    ngx_uint_t               free_read_bufs_count;
     ngx_uint_t               free_pending_in_count;
+    ngx_uint_t               direct_count;
     unsigned                 queued:1;
     unsigned                 in_closed:1;
     unsigned                 out_closed:1;
@@ -160,7 +165,6 @@ struct ngx_anytls_stream_s {
     unsigned                 delayed_close:1;
     unsigned                 closed_by_protocol:1;
 
-    ngx_anytls_addr_t        target;
     u_char                  *initial_data;
     size_t                   initial_data_len;
 
@@ -215,8 +219,7 @@ struct ngx_anytls_connection_s {
     ngx_stream_anytls_srv_conf_t *conf;
     ngx_anytls_conn_state_e  state;
 
-    ngx_rbtree_t             streams;
-    ngx_rbtree_node_t        sentinel;
+    ngx_anytls_stream_t     *stream_ht[NGX_ANYTLS_STREAM_HT_SIZE];
     ngx_queue_t              stream_list;
     ngx_queue_t              ready_streams;
     ngx_uint_t               active_streams;
@@ -232,6 +235,9 @@ struct ngx_anytls_connection_s {
     ngx_chain_t             *unsent;
     size_t                   pending_output;
     size_t                   pending_input;
+
+    ngx_chain_t             *free_read_bufs;
+    ngx_uint_t               free_read_bufs_count;
 
     u_char                  *read_buf;
     size_t                   read_buf_size;

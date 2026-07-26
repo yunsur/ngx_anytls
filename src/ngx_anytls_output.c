@@ -132,7 +132,7 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
             st->out_closed = 1;
         }
         if (f->recycle_payload && f->payload) {
-            ngx_anytls_upstream_free_read_buf(st, f->payload);
+            ngx_anytls_upstream_free_read_buf(ac, f->payload);
             f->payload = NULL;
         }
     }
@@ -245,9 +245,21 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
         ngx_anytls_queue_blocked_frame(ac, f);
 
     } else if (st) {
-        *st->out_last = f;
-        st->out_last = &f->next;
-        ngx_anytls_stream_mark_ready(st);
+        if (strong_ref && f->cmd == NGX_ANYTLS_CMD_PSH
+            && st->out == NULL
+            && ngx_queue_empty(&ac->ready_streams)
+            && ac->pending_output <= ac->conf->max_pending_output / 2
+            && st->direct_count < NGX_ANYTLS_MAX_DIRECT_FRAMES)
+        {
+            ngx_anytls_queue_connection_frame(ac, f);
+            st->direct_count++;
+
+        } else {
+            *st->out_last = f;
+            st->out_last = &f->next;
+            ngx_anytls_stream_mark_ready(st);
+            st->direct_count = 0;
+        }
 
     } else {
         ngx_anytls_queue_connection_frame(ac, f);

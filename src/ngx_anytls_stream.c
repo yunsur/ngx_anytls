@@ -9,29 +9,68 @@
 #include "ngx_anytls_upstream_state.h"
 
 static ngx_anytls_stream_t *
-ngx_anytls_stream_find_raw(ngx_anytls_connection_t *ac, uint32_t id)
+ngx_anytls_stream_ht_find(ngx_anytls_connection_t *ac, uint32_t id)
 {
-    ngx_rbtree_node_t *node, *sentinel;
+    uint32_t idx;
+    ngx_anytls_stream_t *st;
 
-    node = ac->streams.root;
-    sentinel = ac->streams.sentinel;
+    idx = id & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
 
-    while (node != sentinel) {
-        if (id == node->key) {
-            return (ngx_anytls_stream_t *) node;
+    for (ngx_uint_t i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
+        st = ac->stream_ht[idx];
+        if (st == NULL) {
+            return NULL;
         }
-        node = (id < node->key) ? node->left : node->right;
+        if (st->id == id) {
+            return st;
+        }
+        idx = (idx + 1) & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
     }
 
     return NULL;
 }
+
+
+static void
+ngx_anytls_stream_ht_insert(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    uint32_t idx;
+
+    idx = st->id & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
+
+    while (ac->stream_ht[idx] != NULL) {
+        idx = (idx + 1) & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
+    }
+
+    ac->stream_ht[idx] = st;
+}
+
+
+static void
+ngx_anytls_stream_ht_remove(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    uint32_t idx;
+
+    idx = st->id & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
+
+    for (ngx_uint_t i = 0; i < NGX_ANYTLS_STREAM_HT_SIZE; i++) {
+        if (ac->stream_ht[idx] == st) {
+            ac->stream_ht[idx] = NULL;
+            return;
+        }
+        idx = (idx + 1) & (NGX_ANYTLS_STREAM_HT_SIZE - 1);
+    }
+}
+
 
 ngx_anytls_stream_t *
 ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
 {
     ngx_anytls_stream_t *st;
 
-    st = ngx_anytls_stream_find_raw(ac, id);
+    st = ngx_anytls_stream_ht_find(ac, id);
     if (st == NULL || st->closed_by_protocol) {
         return NULL;
     }
@@ -39,11 +78,13 @@ ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
     return st;
 }
 
+
 ngx_uint_t
 ngx_anytls_stream_exists(ngx_anytls_connection_t *ac, uint32_t id)
 {
-    return ngx_anytls_stream_find_raw(ac, id) != NULL;
+    return ngx_anytls_stream_ht_find(ac, id) != NULL;
 }
+
 
 ngx_anytls_stream_t *
 ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
@@ -52,7 +93,7 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
     ngx_anytls_stream_t *st;
 
     if (ac->active_streams >= ac->conf->max_streams
-        || ngx_anytls_stream_find_raw(ac, id) != NULL)
+        || ngx_anytls_stream_exists(ac, id))
     {
         return NULL;
     }
@@ -74,17 +115,17 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
     st->state = NGX_ANYTLS_STREAM_INIT;
     st->pending_in_last = &st->pending_in;
     st->out_last = &st->out;
-    st->node.key = id;
     ngx_queue_init(&st->ready_queue);
     ngx_queue_init(&st->link);
     ngx_queue_init(&st->uot_pending);
 
-    ngx_rbtree_insert(&ac->streams, &st->node);
+    ngx_anytls_stream_ht_insert(ac, st);
     ngx_queue_insert_tail(&ac->stream_list, &st->link);
     ac->active_streams++;
 
     return st;
 }
+
 
 void
 ngx_anytls_stream_mark_closed_by_protocol(ngx_anytls_stream_t *st)
@@ -100,6 +141,7 @@ ngx_anytls_stream_mark_closed_by_protocol(ngx_anytls_stream_t *st)
                    "anytls: stream %ui logically closed by protocol",
                    (ngx_uint_t) st->id);
 }
+
 
 ngx_int_t
 ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st)
@@ -126,6 +168,7 @@ ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st)
     return NGX_OK;
 }
 
+
 void
 ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st)
 {
@@ -134,6 +177,7 @@ ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st)
         st->queued = 1;
     }
 }
+
 
 void
 ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st)
@@ -144,6 +188,7 @@ ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st)
         st->queued = 0;
     }
 }
+
 
 void
 ngx_anytls_stream_close(ngx_anytls_stream_t *st)
@@ -208,7 +253,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
             ngx_free(f->payload_buf.start);
         }
         if (f->recycle_payload && f->payload) {
-            ngx_anytls_upstream_free_read_buf(st, f->payload);
+            ngx_anytls_upstream_free_read_buf(ac, f->payload);
             f->payload = NULL;
         }
     }
@@ -232,7 +277,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     ngx_anytls_upstream_discard_pending(st);
 
-    ngx_rbtree_delete(&ac->streams, &st->node);
+    ngx_anytls_stream_ht_remove(ac, st);
     ngx_queue_remove(&st->link);
     ac->active_streams--;
     ngx_destroy_pool(st->pool);

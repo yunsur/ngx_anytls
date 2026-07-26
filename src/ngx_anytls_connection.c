@@ -61,7 +61,6 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ac->last_out_last = &ac->last_out;
     ac->sending_last = &ac->sending;
 
-    ngx_rbtree_init(&ac->streams, &ac->sentinel, ngx_rbtree_insert_value);
     ngx_queue_init(&ac->stream_list);
     ngx_queue_init(&ac->ready_streams);
 
@@ -658,6 +657,14 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
         st = ngx_queue_data(q, ngx_anytls_stream_t, link);
         ngx_anytls_stream_mark_closed_by_protocol(st);
         ngx_anytls_stream_close(st);
+    }
+
+    while (ac->free_read_bufs) {
+        ngx_chain_t *cl = ac->free_read_bufs;
+        ac->free_read_bufs = cl->next;
+        ngx_free(cl->buf->start);
+        ngx_free(cl->buf);
+        ngx_free(cl);
     }
 
     if (ac->fallback) {
