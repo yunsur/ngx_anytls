@@ -243,6 +243,8 @@ struct ngx_anytls_connection_s {
 
     ngx_chain_t             *free_read_bufs;
     ngx_uint_t               free_read_bufs_count;
+    void                    *free_pending_bufs;
+    ngx_uint_t               free_pending_bufs_count;
 
     u_char                  *read_buf;
     size_t                   read_buf_size;

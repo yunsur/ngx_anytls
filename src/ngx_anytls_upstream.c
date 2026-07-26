@@ -9,6 +9,11 @@
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream_state.h"
 
+static void *ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac,
+    size_t len);
+static void ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac,
+    void *buf);
+
 static ngx_int_t
 ngx_anytls_test_connect(ngx_connection_t *c)
 {
@@ -106,7 +111,7 @@ ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
     while (p) {
         n = p->next;
         if (p->data) {
-            ngx_free(p->data);
+            ngx_anytls_upstream_free_pending_buf(st->ac, p->data);
         }
         p = n;
     }
@@ -137,7 +142,7 @@ ngx_anytls_upstream_free_pending(ngx_anytls_stream_t *st,
     ngx_anytls_pending_t *p)
 {
     if (p->data) {
-        ngx_free(p->data);
+        ngx_anytls_upstream_free_pending_buf(st->ac, p->data);
     }
 
     p->data = NULL;
@@ -148,6 +153,50 @@ ngx_anytls_upstream_free_pending(ngx_anytls_stream_t *st,
         p->next = st->free_pending_in;
         st->free_pending_in = p;
         st->free_pending_in_count++;
+    }
+}
+
+
+typedef struct {
+    void  *next;
+    size_t cap;
+} ngx_anytls_pending_buf_hdr_t;
+
+
+static void *
+ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac, size_t len)
+{
+    ngx_anytls_pending_buf_hdr_t *hdr;
+
+    for (hdr = ac->free_pending_bufs; hdr; hdr = hdr->next) {
+        if (hdr->cap >= len) {
+            ac->free_pending_bufs = hdr->next;
+            ac->free_pending_bufs_count--;
+            return hdr + 1;
+        }
+    }
+
+    hdr = ngx_alloc(sizeof(ngx_anytls_pending_buf_hdr_t) + len, ac->log);
+    if (hdr == NULL) {
+        return NULL;
+    }
+    hdr->cap = len;
+    return hdr + 1;
+}
+
+
+static void
+ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac, void *data)
+{
+    ngx_anytls_pending_buf_hdr_t *hdr;
+
+    hdr = (ngx_anytls_pending_buf_hdr_t *) data - 1;
+    if (ac->free_pending_bufs_count < NGX_ANYTLS_MAX_FREE_PENDING_IN) {
+        hdr->next = ac->free_pending_bufs;
+        ac->free_pending_bufs = hdr;
+        ac->free_pending_bufs_count++;
+    } else {
+        ngx_free(hdr);
     }
 }
 
@@ -380,7 +429,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
         return NGX_ERROR;
     }
 
-    p->data = ngx_alloc(len, st->ac->log);
+    p->data = ngx_anytls_upstream_alloc_pending_buf(st->ac, len);
     if (p->data == NULL) {
         p->next = st->free_pending_in;
         st->free_pending_in = p;

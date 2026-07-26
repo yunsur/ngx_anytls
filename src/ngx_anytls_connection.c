@@ -676,6 +676,12 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
         ngx_free(cl);
     }
 
+    while (ac->free_pending_bufs) {
+        void *next = *(void **) ac->free_pending_bufs;
+        ngx_free(ac->free_pending_bufs);
+        ac->free_pending_bufs = next;
+    }
+
     if (ac->fallback) {
         ngx_close_connection(ac->fallback);
         ac->fallback = NULL;
