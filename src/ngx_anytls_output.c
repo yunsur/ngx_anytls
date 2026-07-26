@@ -281,7 +281,7 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
     f->cmd = cmd;
     f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
-    f->blocked = (cmd == NGX_ANYTLS_CMD_PSH) ? 0 : 1;
+    f->blocked = (cmd == NGX_ANYTLS_CMD_PSH || cmd == NGX_ANYTLS_CMD_FIN) ? 0 : 1;
 
     if (len) {
         f->payload_buf.start = ngx_alloc(len, ac->log);
@@ -328,7 +328,7 @@ ngx_anytls_queue_ref_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
 
     f->cmd = cmd;
     f->fin = (cmd == NGX_ANYTLS_CMD_FIN);
-    f->blocked = (cmd == NGX_ANYTLS_CMD_PSH) ? 0 : 1;
+    f->blocked = (cmd == NGX_ANYTLS_CMD_PSH || cmd == NGX_ANYTLS_CMD_FIN) ? 0 : 1;
 
     if (len) {
         f->payload_buf.pos = data;
