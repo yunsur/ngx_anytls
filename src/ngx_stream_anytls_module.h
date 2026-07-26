@@ -40,8 +40,6 @@ extern ngx_module_t ngx_stream_anytls_module;
     "6=500-1000\n"                                                         \
     "7=500-1000\n"
 
-#define NGX_ANYTLS_STREAM_HT_BITS 11
-#define NGX_ANYTLS_STREAM_HT_SIZE (1 << NGX_ANYTLS_STREAM_HT_BITS)
 
 #define NGX_ANYTLS_MAX_DIRECT_FRAMES 8
 
@@ -220,7 +218,8 @@ struct ngx_anytls_connection_s {
     ngx_stream_anytls_srv_conf_t *conf;
     ngx_anytls_conn_state_e  state;
 
-    ngx_anytls_stream_t     *stream_ht[NGX_ANYTLS_STREAM_HT_SIZE];
+    ngx_anytls_stream_t    **stream_ht;
+    uint32_t                 stream_ht_mask;
     ngx_queue_t              stream_list;
     ngx_queue_t              ready_streams;
     ngx_queue_t              blocked_upstream_reads;

@@ -205,14 +205,13 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                               NGX_ANYTLS_DEFAULT_BUF_SIZE);
     ngx_conf_merge_uint_value(conf->max_streams, prev->max_streams,
                               NGX_ANYTLS_DEFAULT_MAX_STREAMS);
-    if (conf->max_streams > NGX_ANYTLS_STREAM_HT_SIZE) {
+    if (conf->max_streams > 65536) {
         ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
-                           "anytls_max_streams %ui exceeds hash table size %ui, "
-                           "using %ui", conf->max_streams,
-                           (ngx_uint_t) NGX_ANYTLS_STREAM_HT_SIZE,
-                           (ngx_uint_t) NGX_ANYTLS_STREAM_HT_SIZE);
-        conf->max_streams = NGX_ANYTLS_STREAM_HT_SIZE;
+                           "anytls_max_streams %ui is too large, using 65536",
+                           conf->max_streams);
+        conf->max_streams = 65536;
     }
+
     ngx_conf_merge_size_value(conf->max_pending_output,
                               prev->max_pending_output,
                               NGX_ANYTLS_DEFAULT_MAX_PENDING);

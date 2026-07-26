@@ -62,6 +62,27 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ngx_queue_init(&ac->ready_streams);
     ngx_queue_init(&ac->blocked_upstream_reads);
 
+    ac->stream_ht_mask = 0;
+    {
+        uint32_t size = (uint32_t) (conf->max_streams * 2);
+        /* Round up to power of 2 */
+        size--;
+        size |= size >> 1;
+        size |= size >> 2;
+        size |= size >> 4;
+        size |= size >> 8;
+        size |= size >> 16;
+        size++;
+        if (size < 64) { size = 64; }
+        ac->stream_ht_mask = size - 1;
+    }
+    ac->stream_ht = ngx_pcalloc(c->pool,
+                                sizeof(ngx_anytls_stream_t *) * (ac->stream_ht_mask + 1));
+    if (ac->stream_ht == NULL) {
+        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
     ngx_stream_set_ctx(s, ac, ngx_stream_anytls_module);
     c->data = s;
     c->read->handler = ngx_anytls_client_read_handler;
