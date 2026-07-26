@@ -15,6 +15,7 @@ typedef enum {
 typedef struct {
     ngx_uint_t               atyp;
     ngx_str_t                host;
+    u_char                   host_buf[NGX_INET6_ADDRSTRLEN];
     uint16_t                 port;
     struct sockaddr_storage  sockaddr;
     socklen_t                socklen;

@@ -67,12 +67,9 @@ ngx_anytls_parse_socksaddr(ngx_pool_t *pool, u_char *data, size_t len,
         ngx_memzero(sin, sizeof(*sin));
         sin->sin_family = AF_INET;
         ngx_memcpy(&sin->sin_addr.s_addr, p, 4);
-        addr->host.data = ngx_pnalloc(pool, NGX_INET_ADDRSTRLEN);
-        if (addr->host.data == NULL) {
-            return NGX_ERROR;
-        }
-        addr->host.len = ngx_inet_ntop(AF_INET, p, addr->host.data,
-                                       NGX_INET_ADDRSTRLEN);
+        addr->host.data = addr->host_buf;
+        addr->host.len = ngx_inet_ntop(AF_INET, p, addr->host_buf,
+                                       NGX_INET6_ADDRSTRLEN);
         p += 4;
         port = (uint16_t) ((p[0] << 8) | p[1]);
         p += 2;
@@ -90,11 +87,8 @@ ngx_anytls_parse_socksaddr(ngx_pool_t *pool, u_char *data, size_t len,
         ngx_memzero(sin6, sizeof(*sin6));
         sin6->sin6_family = AF_INET6;
         ngx_memcpy(&sin6->sin6_addr, p, 16);
-        addr->host.data = ngx_pnalloc(pool, NGX_INET6_ADDRSTRLEN);
-        if (addr->host.data == NULL) {
-            return NGX_ERROR;
-        }
-        addr->host.len = ngx_inet_ntop(AF_INET6, p, addr->host.data,
+        addr->host.data = addr->host_buf;
+        addr->host.len = ngx_inet_ntop(AF_INET6, p, addr->host_buf,
                                        NGX_INET6_ADDRSTRLEN);
         p += 16;
         port = (uint16_t) ((p[0] << 8) | p[1]);
