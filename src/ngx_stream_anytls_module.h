@@ -181,6 +181,7 @@ struct ngx_anytls_stream_s {
     size_t                   uot_pending_bytes;
     ngx_anytls_addr_mode_e   uot_mode;
     u_char                  *uot_recv_buf;
+    size_t                   uot_recv_pos;
     size_t                   uot_recv_len;
     size_t                   uot_recv_size;
     ngx_msec_t               uot_drop_log_time;

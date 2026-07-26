@@ -72,7 +72,7 @@ static ngx_int_t
 ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
 {
     u_char *p;
-    size_t  n;
+    size_t  n, write_off;
 
     if (len == 0) {
         return NGX_OK;
@@ -89,29 +89,59 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
         }
     }
 
-    if (len > st->uot_recv_size - st->uot_recv_len) {
-        n = st->uot_recv_len + len;
+    /* Compact to front when read position past half the buffer */
+    if (st->uot_recv_pos > st->uot_recv_size / 2) {
+        if (st->uot_recv_len) {
+            ngx_memmove(st->uot_recv_buf,
+                        st->uot_recv_buf + st->uot_recv_pos,
+                        st->uot_recv_len);
+        }
+        st->uot_recv_pos = 0;
+    }
+
+    write_off = st->uot_recv_pos + st->uot_recv_len;
+    if (len > st->uot_recv_size - write_off) {
+        n = write_off + len;
         if (n > 65536) {
             return NGX_ERROR;
         }
 
-        ngx_pool_t *pool;
-        pool = ngx_anytls_stream_pool(st);
-        if (pool == NULL) { return NGX_ERROR; }
-        p = ngx_pnalloc(pool, st->uot_recv_size);
-        if (p == NULL) {
-            return NGX_ERROR;
+        if (st->uot_recv_pos) {
+            if (st->uot_recv_len) {
+                ngx_memmove(st->uot_recv_buf,
+                            st->uot_recv_buf + st->uot_recv_pos,
+                            st->uot_recv_len);
+            }
+            write_off = st->uot_recv_len;
+            st->uot_recv_pos = 0;
         }
-        ngx_memcpy(p, st->uot_recv_buf, st->uot_recv_len);
-        st->uot_recv_buf = p;
+
+        if (len > st->uot_recv_size - write_off) {
+            n = n + (n >> 1);
+            if (n > 65536) {
+                n = 65536;
+            }
+            ngx_pool_t *pool;
+            pool = ngx_anytls_stream_pool(st);
+            if (pool == NULL) { return NGX_ERROR; }
+            p = ngx_pnalloc(pool, n);
+            if (p == NULL) {
+                return NGX_ERROR;
+            }
+            ngx_memcpy(p, st->uot_recv_buf + st->uot_recv_pos,
+                       st->uot_recv_len);
+            st->uot_recv_buf = p;
+            st->uot_recv_size = n;
+            write_off = st->uot_recv_len;
+            st->uot_recv_pos = 0;
+        }
     }
 
-    ngx_memcpy(st->uot_recv_buf + st->uot_recv_len, data, len);
+    ngx_memcpy(st->uot_recv_buf + write_off, data, len);
     st->uot_recv_len += len;
 
     return NGX_OK;
 }
-
 static ngx_uint_t
 ngx_anytls_uot_pending_matches(ngx_anytls_uot_pending_t *pkt, u_char *domain,
     size_t domain_len, uint16_t port)
@@ -519,7 +549,7 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
         return NGX_OK;
     }
 
-    p = st->uot_recv_buf;
+    p = st->uot_recv_buf + st->uot_recv_pos;
     left = st->uot_recv_len;
 
     if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
@@ -553,11 +583,7 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
     if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
         rc = ngx_anytls_uot_resolve_addr(st, &st->target);
         if (rc == NGX_AGAIN) {
-            consumed = st->uot_recv_len - left;
-            if (consumed && left) {
-                ngx_memmove(st->uot_recv_buf, st->uot_recv_buf + consumed,
-                            left);
-            }
+            st->uot_recv_pos += st->uot_recv_len - left;
             st->uot_recv_len = left;
             return NGX_OK;
         }
@@ -607,10 +633,7 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
         }
     }
 
-    consumed = st->uot_recv_len - left;
-    if (consumed && left) {
-        ngx_memmove(st->uot_recv_buf, st->uot_recv_buf + consumed, left);
-    }
+    st->uot_recv_pos += st->uot_recv_len - left;
     st->uot_recv_len = left;
 
     return NGX_OK;
