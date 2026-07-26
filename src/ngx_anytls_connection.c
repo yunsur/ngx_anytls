@@ -54,7 +54,8 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
         ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
-    ac->last_out_last = &ac->last_out;
+    ac->control_out_last = &ac->control_out;
+    ac->data_out_last = &ac->data_out;
     ac->sending_last = &ac->sending;
 
     ngx_queue_init(&ac->stream_list);

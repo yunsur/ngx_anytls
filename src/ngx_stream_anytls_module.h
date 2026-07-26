@@ -227,8 +227,10 @@ struct ngx_anytls_connection_s {
     ngx_uint_t               active_streams;
     ngx_uint_t               blocked_input_streams;
 
-    ngx_anytls_out_frame_t  *last_out;
-    ngx_anytls_out_frame_t **last_out_last;
+    ngx_anytls_out_frame_t  *control_out;
+    ngx_anytls_out_frame_t **control_out_last;
+    ngx_anytls_out_frame_t  *data_out;
+    ngx_anytls_out_frame_t **data_out_last;
     ngx_anytls_out_frame_t  *sending;
     ngx_anytls_out_frame_t **sending_last;
     ngx_anytls_out_frame_t  *free_frames;
