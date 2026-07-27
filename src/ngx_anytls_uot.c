@@ -89,16 +89,6 @@ ngx_anytls_uot_buffer_append(ngx_anytls_stream_t *st, u_char *data, size_t len)
         }
     }
 
-    /* Compact to front when read position past half the buffer */
-    if (st->uot_recv_pos > st->uot_recv_size / 2) {
-        if (st->uot_recv_len) {
-            ngx_memmove(st->uot_recv_buf,
-                        st->uot_recv_buf + st->uot_recv_pos,
-                        st->uot_recv_len);
-        }
-        st->uot_recv_pos = 0;
-    }
-
     write_off = st->uot_recv_pos + st->uot_recv_len;
     if (len > st->uot_recv_size - write_off) {
         if (st->uot_recv_pos) {
