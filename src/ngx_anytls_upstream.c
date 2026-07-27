@@ -477,7 +477,10 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
     ssize_t n;
 
     c = st->upstream;
-    if (c == NULL || st->state != NGX_ANYTLS_STREAM_CONNECTED) {
+    if (c == NULL
+        || (st->state != NGX_ANYTLS_STREAM_CONNECTED
+            && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED))
+    {
         return NGX_OK;
     }
 
@@ -515,6 +518,12 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
         if (ngx_anytls_upstream_update_input_state(st) != NGX_OK) {
             return NGX_ERROR;
         }
+    }
+    /* If client FIN arrived while data was still pending, the FIN handler
+     * deferred half-close. Now that all data is flushed, do it. */
+    if (st->pending_shutdown && st->upstream) {
+        st->pending_shutdown = 0;
+        ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
     }
 
     return ngx_anytls_resume_input(st->ac);

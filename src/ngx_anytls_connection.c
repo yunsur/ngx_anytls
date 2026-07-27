@@ -428,12 +428,33 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
 
             if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
                 ngx_anytls_uot_close(st);
+                ngx_anytls_stream_close(st);
 
-            } else if (st->upstream) {
-                ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
+            } else if (st->upstream
+                       && st->state == NGX_ANYTLS_STREAM_CONNECTED)
+            {
+                /* Flush remaining client data to upstream. If all data
+                 * drains immediately, half-close now; otherwise defer
+                 * shutdown until the write handler completes the drain.
+                 * On write error the upstream is broken — close immediately. */
+                ngx_int_t rc = ngx_anytls_upstream_send_pending(st);
+
+                if (rc == NGX_ERROR) {
+                    ngx_anytls_stream_close(st);
+
+                } else if (st->pending_in == NULL) {
+                    ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
+                    st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
+
+                } else {
+                    st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
+                    st->pending_shutdown = 1;
+                }
+
+            } else {
+                /* No upstream yet or still connecting — close immediately */
+                ngx_anytls_stream_close(st);
             }
-
-            ngx_anytls_stream_close(st);
         }
         return NGX_OK;
 
