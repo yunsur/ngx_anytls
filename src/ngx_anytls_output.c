@@ -19,13 +19,15 @@ static void ngx_anytls_queue_connection_frame(ngx_anytls_connection_t *ac,
 static void ngx_anytls_queue_blocked_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_out_frame_t *f);
 static ngx_uint_t ngx_anytls_frame_payload_headroom(ngx_chain_t *payload);
-static void ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac);
+static void ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac,
+    ngx_uint_t max_frames);
 static ngx_uint_t ngx_anytls_frame_sent(ngx_anytls_out_frame_t *f);
 static void ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac);
-static void ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac);
+void ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac);
 static void ngx_anytls_write_timeout_handler(ngx_event_t *ev);
 static void ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac);
 static void ngx_anytls_disarm_write_timer(ngx_anytls_connection_t *ac);
+static void ngx_anytls_mux_drain_closing_streams(ngx_anytls_connection_t *ac);
 
 
 static ngx_anytls_out_frame_t *
@@ -415,7 +417,8 @@ ngx_anytls_send_synack(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
 
 static void
-ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
+ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac,
+    ngx_uint_t max_frames)
 {
     ngx_queue_t *q;
     ngx_anytls_stream_t *st;
@@ -435,39 +438,73 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac)
         byte_budget = NGX_ANYTLS_MAX_FRAME_DATA;
     }
 
-    min_frames = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
-    if (ac->active_streams > min_frames * 4) {
-        min_frames = ac->active_streams / 4;
-    }
-    if (min_frames > 256) {
-        min_frames = 256;
-    }
-
-    while (!ngx_queue_empty(&ac->ready_streams)
-           && (frames < min_frames
-               || bytes < byte_budget))
-    {
-        q = ngx_queue_head(&ac->ready_streams);
-        st = ngx_queue_data(q, ngx_anytls_stream_t, ready_queue);
-        ngx_anytls_stream_remove_ready(st);
-
-        f = st->out;
-        if (f == NULL) {
-            continue;
+    if (max_frames > 0) {
+        min_frames = max_frames;
+    } else {
+        min_frames = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
+        if (ac->active_streams > min_frames * 4) {
+            min_frames = ac->active_streams / 4;
         }
-
-        st->out = f->next;
-        if (st->out == NULL) {
-            st->out_last = &st->out;
+        if (min_frames > 256) {
+            min_frames = 256;
         }
-        f->next = NULL;
+    }
 
-        ngx_anytls_queue_connection_frame(ac, f);
-        frames++;
-        bytes += f->length;
+    if (max_frames > 0) {
+        while (!ngx_queue_empty(&ac->ready_streams)
+               && frames < min_frames
+               && bytes < byte_budget)
+        {
+            q = ngx_queue_head(&ac->ready_streams);
+            st = ngx_queue_data(q, ngx_anytls_stream_t, ready_queue);
+            ngx_anytls_stream_remove_ready(st);
 
-        if (st->out != NULL) {
-            ngx_anytls_stream_mark_ready(st);
+            f = st->out;
+            if (f == NULL) {
+                continue;
+            }
+
+            st->out = f->next;
+            if (st->out == NULL) {
+                st->out_last = &st->out;
+            }
+            f->next = NULL;
+
+            ngx_anytls_queue_connection_frame(ac, f);
+            frames++;
+            bytes += f->length;
+
+            if (st->out != NULL) {
+                ngx_anytls_stream_mark_ready(st);
+            }
+        }
+    } else {
+        while (!ngx_queue_empty(&ac->ready_streams)
+               && (frames < min_frames
+                   || bytes < byte_budget))
+        {
+            q = ngx_queue_head(&ac->ready_streams);
+            st = ngx_queue_data(q, ngx_anytls_stream_t, ready_queue);
+            ngx_anytls_stream_remove_ready(st);
+
+            f = st->out;
+            if (f == NULL) {
+                continue;
+            }
+
+            st->out = f->next;
+            if (st->out == NULL) {
+                st->out_last = &st->out;
+            }
+            f->next = NULL;
+
+            ngx_anytls_queue_connection_frame(ac, f);
+            frames++;
+            bytes += f->length;
+
+            if (st->out != NULL) {
+                ngx_anytls_stream_mark_ready(st);
+            }
         }
     }
 }
@@ -528,7 +565,7 @@ ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac)
 }
 
 
-static void
+void
 ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
 {
     ngx_queue_t *q, *next;
@@ -549,6 +586,10 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
             ngx_queue_init(&st->upstream_block);
             st->upstream_read_blocked = 0;
             continue;
+        }
+
+        if (ac->output_pressure) {
+            return;
         }
 
         size = ngx_min(st->ac->conf->buffer_size,
@@ -633,7 +674,7 @@ ngx_anytls_post_write(ngx_anytls_connection_t *ac)
 
 
 ngx_int_t
-ngx_anytls_flush(ngx_anytls_connection_t *ac)
+ngx_anytls_flush(ngx_anytls_connection_t *ac, ngx_uint_t budget)
 {
     ngx_connection_t *c;
     ngx_chain_t **ll;
@@ -644,7 +685,7 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
         return NGX_ERROR;
     }
 
-    ngx_anytls_schedule_stream_frames(ac);
+    ngx_anytls_schedule_stream_frames(ac, budget);
 
     if (ac->unsent == NULL) {
         ll = &ac->unsent;
@@ -693,7 +734,10 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
     }
 
     ngx_anytls_recycle_sent_frames(ac);
-    ngx_anytls_resume_upstream_reads(ac);
+
+    if (!ac->output_pressure) {
+        ngx_anytls_resume_upstream_reads(ac);
+    }
 
     if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
         return NGX_ERROR;
@@ -703,6 +747,8 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac)
         ngx_anytls_arm_write_timer(ac);
         return NGX_AGAIN;
     }
+
+    ngx_anytls_mux_drain_closing_streams(ac);
 
     if (ac->control_out != NULL || ac->data_out != NULL
         || !ngx_queue_empty(&ac->ready_streams)) {
@@ -720,4 +766,92 @@ ngx_anytls_output_has_room(ngx_anytls_connection_t *ac, size_t len)
 {
     return ac->pending_output + NGX_ANYTLS_FRAME_HEADER_LEN + len
            <= ac->conf->max_pending_output;
+}
+
+
+ngx_int_t
+ngx_anytls_mux_queue_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
+    u_char *data, size_t len)
+{
+    ngx_int_t rc;
+
+    rc = ngx_anytls_queue_frame(ac, st, cmd, stream_id, data, len);
+    if (rc != NGX_OK) {
+        return rc;
+    }
+
+    /* Update scheduling flags */
+    if (st && (cmd == NGX_ANYTLS_CMD_PSH || cmd == NGX_ANYTLS_CMD_FIN
+               || cmd == NGX_ANYTLS_CMD_SYNACK))
+    {
+        st->ready_out = 1;
+    }
+
+    return NGX_OK;
+}
+
+
+static void
+ngx_anytls_mux_drain_closing_streams(ngx_anytls_connection_t *ac)
+{
+    ngx_queue_t *q, *next;
+    ngx_anytls_stream_t *st;
+
+    for (q = ngx_queue_head(&ac->closing_streams);
+         q != ngx_queue_sentinel(&ac->closing_streams);
+         q = next)
+    {
+        next = ngx_queue_next(q);
+        st = ngx_queue_data(q, ngx_anytls_stream_t, closing_queue);
+
+        if (st->queued_frames == 0) {
+            ngx_queue_remove(q);
+            ngx_queue_init(q);
+            st->closing = 0;
+            ngx_anytls_stream_close(st);
+        }
+    }
+}
+
+
+ngx_int_t
+ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget)
+{
+    ngx_int_t rc;
+
+    if (budget == 0) {
+        budget = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
+    }
+
+    /* Before draining, check if closing streams can be finalized */
+    ngx_anytls_mux_drain_closing_streams(ac);
+
+    rc = ngx_anytls_flush(ac, budget);
+
+    /* Manage output pressure */
+    if (rc == NGX_AGAIN) {
+        /* Client socket blocked - signal output pressure */
+        if (!ac->output_pressure) {
+            ngx_anytls_upstream_mux_suspend_reads(ac);
+        }
+    } else if (rc == NGX_OK) {
+        /* All output drained - release pressure */
+        if (ac->output_pressure) {
+            ngx_anytls_upstream_mux_resume_reads(ac);
+        }
+    }
+
+    return rc;
+}
+
+
+void
+ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac)
+{
+    if (ac->output_pressure) {
+        ngx_anytls_upstream_mux_resume_reads(ac);
+    }
+
+    (void) ngx_anytls_mux_drain_client(ac, 0);
 }

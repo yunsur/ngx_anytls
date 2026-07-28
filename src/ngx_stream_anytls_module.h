@@ -76,6 +76,7 @@ typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
 typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
 typedef struct ngx_anytls_out_frame_s ngx_anytls_out_frame_t;
 typedef struct ngx_anytls_pending_s ngx_anytls_pending_t;
+typedef struct ngx_anytls_upstream_mux_s ngx_anytls_upstream_mux_t;
 typedef void (*ngx_anytls_frame_handler_pt)(ngx_anytls_connection_t *ac,
     ngx_anytls_out_frame_t *frame);
 
@@ -124,6 +125,13 @@ typedef struct {
     size_t                   payload_len;
 } ngx_anytls_uot_pending_t;
 
+struct ngx_anytls_upstream_mux_s {
+    ngx_queue_t              read_ready;
+    ngx_queue_t              write_ready;
+    ngx_queue_t              connect_pending;
+};
+
+
 struct ngx_anytls_stream_s {
     uint32_t                 id;
     ngx_anytls_stream_state_e state;
@@ -135,6 +143,9 @@ struct ngx_anytls_stream_s {
     ngx_queue_t              ready_queue;
     ngx_queue_t              link;
     ngx_queue_t              upstream_block;
+    ngx_queue_t              upstream_read_queue;
+    ngx_queue_t              upstream_write_queue;
+    ngx_queue_t              closing_queue;
 
     ngx_peer_connection_t    peer;
     ngx_connection_t        *upstream;
@@ -152,6 +163,11 @@ struct ngx_anytls_stream_s {
     ngx_uint_t               free_pending_in_count;
     ngx_uint_t               direct_count;
     unsigned                 queued:1;
+    unsigned                 ready_out:1;
+    unsigned                 upstream_read_ready:1;
+    unsigned                 upstream_write_ready:1;
+    unsigned                 blocked_by_client:1;
+    unsigned                 closing:1;
     unsigned                 in_closed:1;
     unsigned                 out_closed:1;
     unsigned                 fin_queued:1;
@@ -237,6 +253,10 @@ struct ngx_anytls_connection_s {
     ngx_anytls_out_frame_t  *free_frames;
     ngx_uint_t               free_frames_count;
     ngx_uint_t               frames;
+
+    ngx_queue_t              closing_streams;
+
+    ngx_anytls_upstream_mux_t upstream_mux;
     ngx_event_t              write_timer;
     ngx_chain_t             *unsent;
     size_t                   pending_output;
@@ -263,6 +283,7 @@ struct ngx_anytls_connection_s {
     unsigned                 client_read_blocked:1;
     unsigned                 input_paused:1;
     unsigned                 write_pending:1;
+    unsigned                 output_pressure:1;
     unsigned                 closing:1;
 
     ngx_peer_connection_t    fallback_peer;
@@ -280,5 +301,24 @@ void ngx_anytls_upstream_write_handler(ngx_event_t *wev);
 void ngx_anytls_udp_read_handler(ngx_event_t *rev);
 void ngx_anytls_udp_write_handler(ngx_event_t *wev);
 void ngx_anytls_finalize(ngx_anytls_connection_t *ac);
+
+/* Mux scheduler API */
+ngx_int_t ngx_anytls_mux_queue_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
+    u_char *data, size_t len);
+ngx_int_t ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac,
+    ngx_uint_t budget);
+void ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac);
+ngx_int_t ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st);
+
+/* Upstream mux API */
+ngx_int_t ngx_anytls_upstream_mux_init(ngx_anytls_connection_t *ac);
+void ngx_anytls_upstream_mux_destroy(ngx_anytls_connection_t *ac);
+ngx_int_t ngx_anytls_upstream_mux_drain_reads(
+    ngx_anytls_connection_t *ac, ngx_uint_t budget);
+ngx_int_t ngx_anytls_upstream_mux_drain_writes(
+    ngx_anytls_connection_t *ac, ngx_uint_t budget);
+void ngx_anytls_upstream_mux_suspend_reads(ngx_anytls_connection_t *ac);
+void ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac);
 
 #endif

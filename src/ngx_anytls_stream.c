@@ -8,6 +8,42 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_state.h"
 
+
+ngx_int_t
+ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st)
+{
+    if (st == NULL || st->closing) {
+        return NGX_OK;
+    }
+
+    st->closing = 1;
+    ngx_queue_insert_tail(&st->ac->closing_streams, &st->closing_queue);
+
+    if (st->upstream) {
+        ngx_close_connection(st->upstream);
+        st->upstream = NULL;
+    }
+    if (st->udp) {
+        ngx_close_connection(st->udp);
+        st->udp = NULL;
+    }
+
+    ngx_anytls_upstream_discard_pending(st);
+    ngx_anytls_upstream_state_finalize(st->ac->session, &st->upstream_state);
+
+    if (st->upstream_read_blocked) {
+        ngx_queue_remove(&st->upstream_block);
+        ngx_queue_init(&st->upstream_block);
+        st->upstream_read_blocked = 0;
+    }
+
+    ngx_log_debug1(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
+                   "anytls: stream %ui marked closing via mux",
+                   (ngx_uint_t) st->id);
+
+    return NGX_OK;
+}
+
 #define NGX_ANYTLS_STREAM_HT_TOMB ((void *) 1)
 
 static ngx_anytls_stream_t *
@@ -119,6 +155,9 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
     ngx_queue_init(&st->ready_queue);
     ngx_queue_init(&st->link);
     ngx_queue_init(&st->upstream_block);
+    ngx_queue_init(&st->upstream_read_queue);
+    ngx_queue_init(&st->upstream_write_queue);
+    ngx_queue_init(&st->closing_queue);
     ngx_queue_init(&st->uot_pending);
 
     if (ngx_anytls_stream_ht_insert(ac, st) != NGX_OK) {
@@ -203,6 +242,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 {
     ngx_anytls_connection_t *ac;
     ngx_anytls_out_frame_t *f, *next;
+    ngx_uint_t was_closing;
 
     if (st == NULL || st->state == NGX_ANYTLS_STREAM_CLOSED) {
         return;
@@ -212,9 +252,26 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     ngx_anytls_stream_mark_closed_by_protocol(st);
 
+    /* Clean up mux queue state */
+    if (st->upstream_read_ready) {
+        ngx_queue_remove(&st->upstream_read_queue);
+        ngx_queue_init(&st->upstream_read_queue);
+        st->upstream_read_ready = 0;
+    }
+    if (st->upstream_write_ready) {
+        ngx_queue_remove(&st->upstream_write_queue);
+        ngx_queue_init(&st->upstream_write_queue);
+        st->upstream_write_ready = 0;
+    }
+
     if (!ac->closing && st->queued_frames != 0) {
         st->state = NGX_ANYTLS_STREAM_CLOSING;
         st->delayed_close = 1;
+
+        if (!st->closing) {
+            st->closing = 1;
+            ngx_queue_insert_tail(&ac->closing_streams, &st->closing_queue);
+        }
 
         ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
                        "anytls: delay stream %ui close, queued_frames:%ui "
@@ -251,6 +308,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     st->state = NGX_ANYTLS_STREAM_CLOSED;
     st->delayed_close = 0;
+    st->ready_out = 0;
+    st->blocked_by_client = 0;
+    was_closing = st->closing;
+    st->closing = 0;
+    st->upstream_read_ready = 0;
+    st->upstream_write_ready = 0;
     ngx_anytls_stream_remove_ready(st);
     ngx_anytls_resolver_cancel(st);
     ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
@@ -301,8 +364,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
     }
-    ngx_anytls_stream_ht_remove(ac, st);
+    if (was_closing) {
+        ngx_queue_remove(&st->closing_queue);
+        ngx_queue_init(&st->closing_queue);
+    }
     ngx_queue_remove(&st->link);
+    ngx_anytls_stream_ht_remove(ac, st);
     ac->active_streams--;
     if (st->pool) { ngx_destroy_pool(st->pool); }
 }

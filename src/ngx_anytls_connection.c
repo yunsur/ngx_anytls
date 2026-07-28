@@ -61,6 +61,8 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ngx_queue_init(&ac->stream_list);
     ngx_queue_init(&ac->ready_streams);
     ngx_queue_init(&ac->blocked_upstream_reads);
+    ngx_queue_init(&ac->closing_streams);
+    ngx_anytls_upstream_mux_init(ac);
 
     ac->stream_ht_mask = 0;
     {
@@ -397,7 +399,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             (void) ngx_anytls_queue_ref_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
                                               (u_char *) "client did not send its settings",
                                               sizeof("client did not send its settings") - 1);
-            (void) ngx_anytls_flush(ac);
+            (void) ngx_anytls_flush(ac, 0);
             return NGX_ERROR;
         }
         if (frame->stream_id == 0) {
@@ -650,7 +652,7 @@ ngx_anytls_client_write_handler(ngx_event_t *wev)
         return;
     }
 
-    if (ngx_anytls_flush(ac) == NGX_ERROR) {
+    if (ngx_anytls_mux_drain_client(ac, 0) == NGX_ERROR) {
         ngx_anytls_finalize(ac);
     }
 }
