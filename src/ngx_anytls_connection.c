@@ -6,6 +6,7 @@
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
+#include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_fallback.h"
 #include "ngx_anytls_upstream_state.h"
