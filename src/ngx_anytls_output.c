@@ -139,6 +139,14 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
         }
     }
 
+    ngx_log_debug6(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                   "anytls: frame sent cmd=%d st=%ui len=%uz "
+                   "pend_out=%uz qframes=%ui a_frames=%ui",
+                   (int) f->cmd,
+                   st ? (ngx_uint_t) st->id : 0,
+                   f->length, ac->pending_output,
+                   st ? st->queued_frames : 0, ac->frames);
+
     ngx_anytls_free_frame(ac, f);
 
     if (ac->frames) {
@@ -257,6 +265,14 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
 
     ac->pending_output += f->length;
     ac->frames++;
+
+    ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                   "anytls: queue frame cmd=%d st=%ui len=%uz "
+                   "pend_out=%uz frames=%ui",
+                   (int) f->cmd,
+                   st ? (ngx_uint_t) st->id : 0,
+                   f->length, ac->pending_output, ac->frames);
+
     ngx_anytls_post_write(ac);
 
     return NGX_OK;
@@ -507,6 +523,11 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac,
             }
         }
     }
+
+    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                   "anytls: schedule done frames=%ui bytes=%uz ready_empty=%d",
+                   frames, bytes,
+                   ngx_queue_empty(&ac->ready_streams));
 }
 
 
@@ -607,6 +628,13 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
         st->blocked_by_upstream = 0;
+
+        ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                       "anytls: upstream resume st=%ui pend_out=%uz "
+                       "blocked_qlen=%ui",
+                       (ngx_uint_t) st->id, st->pending_out,
+                       ngx_queue_size(&ac->blocked_upstream_reads));
+
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             ngx_anytls_stream_close(st);
             return;
@@ -839,11 +867,17 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget)
     if (rc == NGX_AGAIN) {
         /* Client socket blocked - signal output pressure */
         if (!ac->output_pressure) {
+            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                           "anytls: pressure ON pend_out=%uz",
+                           ac->pending_output);
             ngx_anytls_upstream_mux_suspend_reads(ac);
         }
     } else if (rc == NGX_OK) {
         /* All output drained - release pressure */
         if (ac->output_pressure) {
+            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                           "anytls: pressure OFF pend_out=%uz",
+                           ac->pending_output);
             ngx_anytls_upstream_mux_resume_reads(ac);
         }
     }

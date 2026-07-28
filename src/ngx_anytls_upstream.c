@@ -95,6 +95,10 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
 
     ngx_queue_insert_tail(&st->ac->blocked_upstream_reads, &st->upstream_block);
 
+    ngx_log_debug2(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
+                   "anytls: upstream block st=%ui pend_out=%uz",
+                   (ngx_uint_t) st->id, st->pending_out);
+
     if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
         return NGX_ERROR;
     }
