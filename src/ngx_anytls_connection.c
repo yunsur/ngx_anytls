@@ -653,15 +653,26 @@ ngx_anytls_client_write_handler(ngx_event_t *wev)
         return;
     }
 
-    if (ngx_anytls_mux_drain_client(ac, 0) == NGX_ERROR) {
-        ngx_anytls_finalize(ac);
+    {
+        ngx_anytls_drain_result_t dr;
+        if (ngx_anytls_mux_drain_client(ac, 0, &dr) == NGX_ERROR) {
+            ngx_anytls_finalize(ac);
+        } else if (dr.can_finalize) {
+            ngx_anytls_finalize(ac);
+        }
     }
 }
 
 void
 ngx_anytls_close_if_idle(ngx_anytls_connection_t *ac)
 {
-    if (ac->closing || ac->active_streams == 0) {
+    if (ac->closing) {
+        return;
+    }
+
+    if (ac->active_streams == 0 && ac->pending_output == 0
+        && ac->pending_input == 0 && ac->frames == 0)
+    {
         ngx_anytls_finalize(ac);
     }
 }

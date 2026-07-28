@@ -851,13 +851,17 @@ ngx_anytls_mux_drain_closing_streams(ngx_anytls_connection_t *ac)
 
 
 ngx_int_t
-ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget)
+ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
+    ngx_anytls_drain_result_t *result)
 {
     ngx_int_t rc;
+    size_t prev_pending;
 
     if (budget == 0) {
         budget = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
     }
+
+    prev_pending = ac->pending_output;
 
     /* Before draining, check if closing streams can be finalized */
     ngx_anytls_mux_drain_closing_streams(ac);
@@ -883,6 +887,44 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget)
         }
     }
 
+    if (result) {
+        size_t drained;
+        ngx_uint_t can_finalize;
+        ngx_queue_t *q;
+        ngx_anytls_stream_t *st;
+
+        if (prev_pending >= ac->pending_output) {
+            drained = prev_pending - ac->pending_output;
+        } else {
+            drained = prev_pending;
+        }
+
+        can_finalize = (ac->client_eof && ac->active_streams == 0
+                        && ac->pending_output == 0
+                        && ac->pending_input == 0
+                        && ac->frames == 0) ? 1 : 0;
+
+        if (can_finalize) {
+            /* Double-check per-stream state: no resolver or UoT pending */
+            for (q = ngx_queue_head(&ac->stream_list);
+                 q != ngx_queue_sentinel(&ac->stream_list);
+                 q = ngx_queue_next(q))
+            {
+                st = ngx_queue_data(q, ngx_anytls_stream_t, link);
+                if (st->resolver_pending
+                    || !ngx_queue_empty(&st->uot_pending))
+                {
+                    can_finalize = 0;
+                    break;
+                }
+            }
+        }
+
+        result->pending_delta = drained;
+        result->pressure_on = ac->output_pressure ? 1 : 0;
+        result->can_finalize = can_finalize;
+    }
+
     return rc;
 }
 
@@ -894,7 +936,7 @@ ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac)
         ngx_anytls_upstream_mux_resume_reads(ac);
     }
 
-    (void) ngx_anytls_mux_drain_client(ac, 0);
+    (void) ngx_anytls_mux_drain_client(ac, 0, NULL);
 }
 
 
