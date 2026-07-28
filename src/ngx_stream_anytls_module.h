@@ -323,6 +323,8 @@ ngx_int_t ngx_anytls_upstream_mux_drain_writes(
     ngx_anytls_connection_t *ac, ngx_uint_t budget);
 void ngx_anytls_upstream_mux_suspend_reads(ngx_anytls_connection_t *ac);
 void ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac);
+void ngx_anytls_upstream_mux_stream_output_drained(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_upstream_mux_open(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr);
 void ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,

@@ -292,6 +292,21 @@ ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac)
 }
 
 
+void
+ngx_anytls_upstream_mux_stream_output_drained(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    /* Called when a stream's pending output has been drained (sent to client).
+     * If this stream was blocked on output, re-enable upstream reads.
+     * The global resume path handles this; per-stream resume is
+     * a future optimization. */
+    if (st->upstream_read_blocked) {
+        /* Let the global resume mechanism pick this stream up */
+        ngx_anytls_resume_upstream_reads(ac);
+    }
+}
+
+
 ngx_int_t
 ngx_anytls_upstream_mux_open(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
