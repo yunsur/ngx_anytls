@@ -4,6 +4,8 @@
 
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_upstream.h"
+#include "ngx_anytls_core.h"
+#include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_connection.h"
@@ -74,8 +76,12 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
                    "anytls: upstream block st=%ui pend_out=%uz",
                    (ngx_uint_t) st->id, st->pending_out);
 
-    if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
-        return NGX_ERROR;
+    if (rev->active) {
+        ngx_connection_t *blk_c;
+        blk_c = rev->data;
+        if (ngx_anytls_transport_disarm_read(blk_c) != NGX_OK) {
+            return NGX_ERROR;
+        }
     }
 
     return NGX_OK;
@@ -163,7 +169,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                     ngx_anytls_stream_close(st);
                     goto next_stream;
                 }
-                n = c->recv(c, b->last + 2, size - 2);
+                n = ngx_anytls_transport_read(c, b->last + 2, size - 2);
                 if (n == NGX_AGAIN) {
                     ngx_anytls_upstream_free_read_buf(ac, cl);
                     break;
@@ -185,14 +191,14 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                     n += 2;
                 }
             } else {
-                n = c->recv(c, b->last, size);
+                n = ngx_anytls_transport_read(c, b->last, size);
                 if (n == NGX_AGAIN) {
                     ngx_anytls_upstream_free_read_buf(ac, cl);
                     break;
                 }
                 if (n == 0) {
                     ngx_anytls_upstream_free_read_buf(ac, cl);
-                    ngx_close_connection(c);
+                    ngx_anytls_transport_close(c);
                     st->upstream = NULL;
 
                     (void) ngx_anytls_stream_send_fin_and_close(st);
@@ -228,7 +234,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
             frames++;
         }
 
-        (void) ngx_handle_read_event(c->read, 0);
+        (void) ngx_anytls_transport_arm_read(c);
     next_stream:
         ;
     }

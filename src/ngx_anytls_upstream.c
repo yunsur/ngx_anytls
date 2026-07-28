@@ -4,6 +4,7 @@
 
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
+#include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
@@ -353,7 +354,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     if (rc == NGX_OK) {
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
         (void) ngx_anytls_send_synack(st, NULL, 0);
-        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
             return NGX_ERROR;
         }
         return ngx_anytls_upstream_send_pending(st);
@@ -363,7 +364,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     ngx_queue_insert_tail(&st->ac->upstream_mux.connect_pending,
                           &st->connect_queue);
 
-    if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
+    if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
         return NGX_ERROR;
     }
 
@@ -385,7 +386,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
         && st->pending_in == NULL)
     {
         while (len) {
-            n = c->send(c, data, len);
+            n = ngx_anytls_transport_send(c, data, len);
             if (n == NGX_ERROR || n == 0) {
                 return NGX_ERROR;
             }
@@ -403,7 +404,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
             return NGX_OK;
         }
 
-        if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
+        if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
             return NGX_ERROR;
         }
     }
@@ -472,18 +473,18 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
 
     while (st->pending_in) {
         p = st->pending_in;
-        n = c->send(c, p->data + p->sent, p->len - p->sent);
+        n = ngx_anytls_transport_send(c, p->data + p->sent, p->len - p->sent);
         if (n == NGX_ERROR || n == 0) {
             return NGX_ERROR;
         }
         if (n == NGX_AGAIN) {
-            return ngx_handle_write_event(c->write, 0);
+            return ngx_anytls_transport_arm_write(c);
         }
         p->sent += (size_t) n;
         ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
                                                  &st->upstream_state, n);
         if (p->sent != p->len) {
-            return ngx_handle_write_event(c->write, 0);
+            return ngx_anytls_transport_arm_write(c);
         }
         st->pending_in = p->next;
         if (st->pending_in_bytes >= p->len) {
@@ -509,7 +510,7 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
      * deferred half-close. Now that all data is flushed, do it. */
     if (st->pending_shutdown && st->upstream) {
         st->pending_shutdown = 0;
-        ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
+        ngx_anytls_transport_shutdown_write(st->upstream);
     }
 
     return ngx_anytls_resume_input(st->ac);
@@ -534,7 +535,7 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
         ngx_anytls_upstream_mux_on_connect_ready(st->ac, st);
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
         (void) ngx_anytls_send_synack(st, NULL, 0);
-        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
             ngx_anytls_stream_close(st);
             return;
         }
@@ -559,6 +560,6 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
         && !st->closing
         && st->state != NGX_ANYTLS_STREAM_CLOSED)
     {
-        (void) ngx_handle_read_event(rev, 0);
+        (void) ngx_anytls_transport_arm_read(st->upstream);
     }
 }

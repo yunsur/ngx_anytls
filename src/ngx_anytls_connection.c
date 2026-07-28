@@ -4,9 +4,11 @@
 
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_output.h"
+#include "ngx_anytls_core.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
+#include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_fallback.h"
 #include "ngx_anytls_upstream_state.h"
@@ -186,7 +188,7 @@ ngx_anytls_send_http_400(ngx_anytls_connection_t *ac)
                        sizeof("Connection: close" CRLF CRLF) - 1);
         p = ngx_cpymem(p, body, sizeof(body) - 1);
 
-        (void) ac->client->send(ac->client, buf, (size_t) (p - buf));
+        (void) ngx_anytls_transport_send(ac->client, buf, (size_t) (p - buf));
     }
 }
 
@@ -224,7 +226,7 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     last = data + len;
 
     for ( ;; ) {
-        rc = ngx_anytls_parse_frame(pos, last, &frame, &consumed);
+        rc = ngx_anytls_core_parse_frame(pos, last, &frame, &consumed);
         if (rc == NGX_AGAIN) {
             break;
         }
@@ -269,7 +271,7 @@ ngx_anytls_pause_input(ngx_anytls_connection_t *ac)
     ac->client_read_blocked = 1;
     rev->ready = 0;
 
-    if (rev->active && ngx_del_event(rev, NGX_READ_EVENT, 0) != NGX_OK) {
+    if (rev->active && ngx_anytls_transport_disarm_read(ac->client) != NGX_OK) {
         return NGX_ERROR;
     }
 
@@ -288,7 +290,7 @@ ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac)
     ac->client_read_blocked = 0;
     rev = ac->client->read;
 
-    if (ngx_handle_read_event(rev, 0) != NGX_OK) {
+    if (ngx_anytls_transport_arm_read(ac->client) != NGX_OK) {
         return NGX_ERROR;
     }
 
@@ -357,8 +359,8 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         return NGX_OK;
 
     case NGX_ANYTLS_CMD_SETTINGS:
-        if (ngx_anytls_parse_settings(ac->pool, frame->data, frame->data_len,
-                                      &settings) != NGX_OK)
+        if (ngx_anytls_core_parse_settings(ac->pool, frame->data, frame->data_len,
+                                           &settings) != NGX_OK)
         {
             return NGX_ERROR;
         }
@@ -446,7 +448,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
                     ngx_anytls_stream_close(st);
 
                 } else if (st->pending_in == NULL) {
-                    ngx_shutdown_socket(st->upstream->fd, NGX_WRITE_SHUTDOWN);
+                    ngx_anytls_transport_shutdown_write(st->upstream);
                     st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
 
                 } else {
@@ -475,7 +477,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
     case NGX_ANYTLS_CMD_SERVER_SETTINGS:
         ngx_log_debug2(NGX_LOG_DEBUG_STREAM, ac->log, 0,
                        "anytls: ignored client control frame %s, stream:%ui",
-                       ngx_anytls_cmd_name(frame->cmd),
+                       ngx_anytls_core_cmd_name(frame->cmd),
                        (ngx_uint_t) frame->stream_id);
         return NGX_OK;
 
@@ -497,8 +499,8 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         ngx_pool_t *pool;
         pool = ngx_anytls_stream_pool(st);
         if (pool == NULL) { return NGX_ERROR; }
-        rc = ngx_anytls_parse_socksaddr(pool, frame->data, frame->data_len,
-                                        &addr);
+        rc = ngx_anytls_core_parse_socksaddr(pool, frame->data, frame->data_len,
+                                             &addr);
         if (rc != NGX_OK) {
             return rc;
         }
@@ -582,7 +584,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     buf = ac->read_buf;
 
     for ( ;; ) {
-        n = c->recv(c, buf + ac->remnant_len, ac->read_buf_size);
+        n = ngx_anytls_transport_read(c, buf + ac->remnant_len, ac->read_buf_size);
         if (n == NGX_AGAIN) {
             break;
         }
@@ -620,7 +622,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     }
 
     if (!ac->client_read_blocked) {
-        (void) ngx_handle_read_event(rev, 0);
+        (void) ngx_anytls_transport_arm_read(c);
     }
 }
 
@@ -718,7 +720,7 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
     }
 
     if (ac->fallback) {
-        ngx_close_connection(ac->fallback);
+        ngx_anytls_transport_close(ac->fallback);
         ac->fallback = NULL;
     }
 

@@ -8,6 +8,7 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_uot.h"
+#include "ngx_anytls_transport_ngx.h"
 
 
 ngx_int_t
@@ -21,7 +22,7 @@ ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st)
     ngx_queue_insert_tail(&st->ac->closing_streams, &st->closing_queue);
 
     if (st->upstream) {
-        ngx_close_connection(st->upstream);
+        ngx_anytls_transport_close(st->upstream);
         st->upstream = NULL;
     }
     if (st->udp) {
@@ -290,7 +291,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_anytls_resolver_cancel(st);
 
         if (st->upstream) {
-            ngx_close_connection(st->upstream);
+            ngx_anytls_transport_close(st->upstream);
             st->upstream = NULL;
         }
         if (st->udp) {
@@ -358,7 +359,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     st->pending_out = 0;
 
     if (st->upstream) {
-        ngx_close_connection(st->upstream);
+        ngx_anytls_transport_close(st->upstream);
         st->upstream = NULL;
     }
     if (st->udp) {

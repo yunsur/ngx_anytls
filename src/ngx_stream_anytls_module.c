@@ -4,9 +4,9 @@
 #include <openssl/sha.h>
 
 #include "ngx_stream_anytls_module.h"
+#include "ngx_anytls_core.h"
 #include "ngx_anytls_padding.h"
 #include "ngx_anytls_connection.h"
-#include "ngx_anytls_protocol.h"
 
 static void *ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent,
@@ -273,7 +273,7 @@ ngx_stream_anytls_password(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     }
 
     value = cf->args->elts;
-    ngx_anytls_sha256(&value[1], ascf->password_hash);
+    ngx_anytls_core_sha256(&value[1], ascf->password_hash);
     ascf->password_set = 1;
 
     return NGX_CONF_OK;

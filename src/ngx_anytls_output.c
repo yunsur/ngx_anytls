@@ -3,9 +3,11 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_output.h"
+#include "ngx_anytls_core.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
+#include "ngx_anytls_transport_ngx.h"
 
 static ngx_anytls_out_frame_t *ngx_anytls_get_frame(ngx_anytls_connection_t *ac);
 static void ngx_anytls_free_frame(ngx_anytls_connection_t *ac,
@@ -321,7 +323,7 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         f->length = len;
     }
 
-    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
+    ngx_anytls_core_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     return ngx_anytls_queue_prepared_frame(ac, st, f);
 }
 
@@ -361,7 +363,7 @@ ngx_anytls_queue_ref_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         f->length = len;
     }
 
-    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
+    ngx_anytls_core_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     return ngx_anytls_queue_prepared_frame(ac, st, f);
 }
 
@@ -401,8 +403,8 @@ ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
             && ngx_anytls_frame_payload_headroom(payload))
         {
             f->payload_chain.buf->pos -= NGX_ANYTLS_FRAME_HEADER_LEN;
-            ngx_anytls_write_frame_header(f->payload_chain.buf->pos, cmd,
-                                          stream_id, (uint16_t) len);
+            ngx_anytls_core_write_frame_header(f->payload_chain.buf->pos, cmd,
+                                               stream_id, (uint16_t) len);
             f->first = &f->payload_chain;
             f->last = &f->payload_chain;
 
@@ -410,7 +412,7 @@ ngx_anytls_queue_chain_frame(ngx_anytls_connection_t *ac,
         }
     }
 
-    ngx_anytls_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
+    ngx_anytls_core_write_frame_header(f->header, cmd, stream_id, (uint16_t) len);
     return ngx_anytls_queue_prepared_frame(ac, st, f);
 }
 
@@ -636,7 +638,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
                        (ngx_uint_t) st->id, st->pending_out,
                        ngx_queue_size(&ac->blocked_upstream_reads));
 
-        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
+        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
             ngx_anytls_stream_close(st);
             return;
         }
@@ -764,7 +766,7 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac, ngx_uint_t budget)
         return NGX_OK;
     }
 
-    ac->unsent = c->send_chain(c, ac->unsent, 0);
+    ac->unsent = ngx_anytls_transport_write_chain(c, ac->unsent, 0);
     if (ac->unsent == NGX_CHAIN_ERROR) {
         return NGX_ERROR;
     }
@@ -775,7 +777,7 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac, ngx_uint_t budget)
         ngx_anytls_resume_upstream_reads(ac);
     }
 
-    if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
+    if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
         return NGX_ERROR;
     }
 

@@ -10,6 +10,8 @@
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
+#include "ngx_anytls_core.h"
+#include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_state.h"
 
 #define NGX_ANYTLS_UOT_MAX_HEADER  21
@@ -303,7 +305,6 @@ ngx_anytls_uot_arm_idle_timer(ngx_anytls_stream_t *st)
 static ngx_int_t
 ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
 {
-    ngx_socket_t fd;
     ngx_connection_t *c;
 
     if (st->udp && st->udp_family == family) {
@@ -311,7 +312,7 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
     }
 
     if (st->udp) {
-        ngx_close_connection(st->udp);
+        ngx_anytls_transport_close(st->udp);
         st->udp = NULL;
         st->udp_family = 0;
     }
@@ -320,19 +321,8 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
         return NGX_ERROR;
     }
 
-    fd = ngx_socket((int) family, SOCK_DGRAM, 0);
-    if (fd == (ngx_socket_t) -1) {
-        return NGX_ERROR;
-    }
-
-    if (ngx_nonblocking(fd) == -1) {
-        ngx_close_socket(fd);
-        return NGX_ERROR;
-    }
-
-    c = ngx_get_connection(fd, st->ac->log);
+    c = ngx_anytls_transport_open_udp(st->ac->log, family);
     if (c == NULL) {
-        ngx_close_socket(fd);
         return NGX_ERROR;
     }
 
@@ -341,16 +331,8 @@ ngx_anytls_udp_socket(ngx_anytls_stream_t *st, ngx_uint_t family)
     c->pool = st->pool;
     c->read->handler = ngx_anytls_udp_read_handler;
     c->write->handler = ngx_anytls_udp_write_handler;
-    c->recv = ngx_udp_recv;
     st->udp = c;
     st->udp_family = family;
-
-    if (ngx_add_event(c->read, NGX_READ_EVENT, 0) != NGX_OK) {
-        ngx_close_connection(c);
-        st->udp = NULL;
-        st->udp_family = 0;
-        return NGX_ERROR;
-    }
 
     ngx_anytls_uot_arm_idle_timer(st);
 
@@ -418,7 +400,7 @@ ngx_anytls_uot_send_resolved(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr,
         return NGX_ERROR;
     }
 
-    n = sendto(st->udp->fd, payload, payload_len, 0,
+    n = ngx_anytls_transport_sendto(st->udp->fd, payload, payload_len,
                (struct sockaddr *) &addr->sockaddr, addr->socklen);
     if (n == -1) {
         ngx_log_debug1(NGX_LOG_DEBUG_STREAM, st->ac->log, ngx_socket_errno,
@@ -610,7 +592,7 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
             ngx_pool_t *pool;
             pool = ngx_anytls_stream_pool(st);
             if (pool == NULL) { return NGX_ERROR; }
-            rc = ngx_anytls_parse_socksaddr(pool, p + 1, left - 1,
+            rc = ngx_anytls_core_parse_socksaddr(pool, p + 1, left - 1,
                                             &st->target);
             if (rc == NGX_AGAIN) {
                 return NGX_OK;
@@ -665,8 +647,9 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
             ngx_pool_t *pool;
             pool = ngx_anytls_stream_pool(st);
             if (pool == NULL) { return NGX_ERROR; }
-            rc = ngx_anytls_parse_uot_packet(pool, p, left, &addr, &payload,
-                                             &payload_len, &consumed);
+            rc = ngx_anytls_core_parse_uot_packet(pool, p, left, &addr,
+                                                   &payload,
+                                                   &payload_len, &consumed);
             if (rc == NGX_AGAIN) {
                 break;
             }
@@ -780,7 +763,8 @@ ngx_anytls_uot_read_dgram(ngx_anytls_stream_t *st, ngx_connection_t *c)
     payload = b->pos + NGX_ANYTLS_UOT_MAX_HEADER;
 
     fromlen = sizeof(from);
-    n = recvfrom(c->fd, payload, NGX_ANYTLS_MAX_FRAME_DATA, 0,
+    n = ngx_anytls_transport_recvfrom(c->fd, payload,
+                 NGX_ANYTLS_MAX_FRAME_DATA,
                  (struct sockaddr *) &from, &fromlen);
     if (n == -1) {
         ngx_anytls_upstream_free_read_buf(st->ac, cl);
@@ -884,7 +868,7 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
         ngx_anytls_upstream_mux_on_read_ready(st->ac, st);
 
         if (st->udp && !st->upstream_read_blocked) {
-            (void) ngx_handle_read_event(rev, 0);
+            (void) ngx_anytls_transport_arm_read(c);
         }
         return;
     }
@@ -898,7 +882,7 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             ngx_queue_insert_tail(&st->ac->blocked_upstream_reads,
                                   &st->upstream_block);
             if (rev->active) {
-                (void) ngx_del_event(rev, NGX_READ_EVENT, 0);
+                (void) ngx_anytls_transport_disarm_read(c);
             }
         }
         return;
@@ -915,7 +899,7 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
         }
     }
 
-    (void) ngx_handle_read_event(rev, 0);
+    (void) ngx_anytls_transport_arm_read(c);
 }
 
 void
@@ -935,7 +919,7 @@ ngx_anytls_uot_close(ngx_anytls_stream_t *st)
     }
 
     if (st->udp) {
-        ngx_close_connection(st->udp);
+        ngx_anytls_transport_close(st->udp);
         st->udp = NULL;
         st->udp_family = 0;
     }
