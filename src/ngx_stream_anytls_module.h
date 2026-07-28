@@ -207,6 +207,7 @@ struct ngx_anytls_stream_s {
     ngx_msec_t               uot_drop_log_time;
     ngx_uint_t               uot_drop_count;
     ngx_event_t             *uot_timer;
+    ngx_msec_t               last_activity;
     unsigned                 uot_request_parsed:1;
 };
 

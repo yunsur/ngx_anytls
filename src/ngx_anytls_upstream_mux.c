@@ -224,6 +224,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
 
             ngx_anytls_upstream_state_add_bytes_received(ac->session,
                                                          &st->upstream_state, n);
+            st->last_activity = ngx_current_msec;
             frames++;
         }
 
@@ -260,6 +261,8 @@ ngx_anytls_upstream_mux_drain_writes(ngx_anytls_connection_t *ac,
 
         if (ngx_anytls_upstream_send_pending(st) == NGX_ERROR) {
             ngx_anytls_stream_close(st);
+        } else {
+            st->last_activity = ngx_current_msec;
         }
 
         count++;
