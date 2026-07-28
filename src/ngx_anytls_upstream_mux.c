@@ -88,6 +88,42 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
 }
 
 
+static ngx_inline ngx_connection_t *
+ngx_anytls_upstream_mux_read_conn(ngx_anytls_stream_t *st)
+{
+    return (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT)
+            ? st->udp : st->upstream;
+}
+
+
+static ngx_inline ngx_int_t
+ngx_anytls_upstream_mux_stream_readable(ngx_anytls_stream_t *st)
+{
+    ngx_connection_t *c;
+
+    c = ngx_anytls_upstream_mux_read_conn(st);
+    if (c == NULL) {
+        return 0;
+    }
+
+    return (st->state == NGX_ANYTLS_STREAM_CONNECTED
+            || st->state == NGX_ANYTLS_STREAM_HALF_CLOSED) ? 1 : 0;
+}
+
+
+static ngx_inline ngx_int_t
+ngx_anytls_upstream_mux_stream_writable(ngx_anytls_stream_t *st)
+{
+    if (st->upstream == NULL) {
+        return 0;
+    }
+
+    return (st->state == NGX_ANYTLS_STREAM_CONNECTED
+            || st->state == NGX_ANYTLS_STREAM_HALF_CLOSED
+            || st->state == NGX_ANYTLS_STREAM_CONNECTING) ? 1 : 0;
+}
+
+
 ngx_int_t
 ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
     ngx_uint_t budget)
@@ -116,17 +152,11 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
         ngx_queue_remove(q);
         ngx_queue_init(q);
 
-        if ((st->upstream_type != NGX_ANYTLS_UPSTREAM_UOT
-                 && st->upstream == NULL)
-            || (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT
-                 && st->udp == NULL)
-            || (st->state != NGX_ANYTLS_STREAM_CONNECTED
-                && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED))
-        {
+        if (!ngx_anytls_upstream_mux_stream_readable(st)) {
             continue;
         }
 
-        c = (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) ? st->udp : st->upstream;
+        c = ngx_anytls_upstream_mux_read_conn(st);
         size = ac->conf->buffer_size;
         if (size > NGX_ANYTLS_MAX_FRAME_DATA) {
             size = NGX_ANYTLS_MAX_FRAME_DATA;
@@ -391,11 +421,7 @@ void
 ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    if (st->upstream == NULL
-        || (st->state != NGX_ANYTLS_STREAM_CONNECTED
-            && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED
-            && st->state != NGX_ANYTLS_STREAM_CONNECTING))
-    {
+    if (!ngx_anytls_upstream_mux_stream_writable(st)) {
         return;
     }
 
