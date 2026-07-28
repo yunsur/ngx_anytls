@@ -55,7 +55,8 @@ ngx_anytls_upstream_mux_destroy(ngx_anytls_connection_t *ac)
          q != ngx_queue_sentinel(&ac->upstream_mux.connect_pending); q = next)
     {
         next = ngx_queue_next(q);
-        st = ngx_queue_data(q, ngx_anytls_stream_t, upstream_read_queue);
+        st = ngx_queue_data(q, ngx_anytls_stream_t, connect_queue);
+        st->connect_pending = 0;
         ngx_queue_remove(q);
         ngx_queue_init(q);
     }
@@ -89,6 +90,7 @@ ngx_anytls_upstream_block_read(ngx_anytls_stream_t *st, ngx_event_t *rev)
         return NGX_OK;
     }
     st->upstream_read_blocked = 1;
+    st->blocked_by_upstream = 1;
     rev->ready = 0;
 
     ngx_queue_insert_tail(&st->ac->blocked_upstream_reads, &st->upstream_block);
@@ -287,6 +289,95 @@ ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac)
 
     /* Actually re-arm blocked upstream reads */
     ngx_anytls_resume_upstream_reads(ac);
+}
+
+
+ngx_int_t
+ngx_anytls_upstream_mux_open(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
+{
+    /* Delegates to ngx_anytls_upstream_open() which handles DNS and socket
+     * connect.  socket connect pending is tracked via st->connect_pending +
+     * st->connect_queue (set in open_resolved async path, cleared by
+     * on_connect_ready or stream_close).  DNS resolution pending is tracked
+     * separately via st->resolver_pending / st->resolver_ctx. */
+    return ngx_anytls_upstream_open(st, addr);
+}
+
+
+void
+ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->connect_pending) {
+        st->connect_pending = 0;
+        ngx_queue_remove(&st->connect_queue);
+        ngx_queue_init(&st->connect_queue);
+    }
+}
+
+
+void
+ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->upstream == NULL
+        || (st->state != NGX_ANYTLS_STREAM_CONNECTED
+            && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED))
+    {
+        return;
+    }
+
+    if (!st->upstream_read_ready && !st->upstream_read_blocked) {
+        st->upstream_read_ready = 1;
+        ngx_queue_insert_tail(&ac->upstream_mux.read_ready,
+                              &st->upstream_read_queue);
+    }
+
+    (void) ngx_anytls_upstream_mux_drain_reads(ac, 32);
+}
+
+
+void
+ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->upstream == NULL
+        || (st->state != NGX_ANYTLS_STREAM_CONNECTED
+            && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED
+            && st->state != NGX_ANYTLS_STREAM_CONNECTING))
+    {
+        return;
+    }
+
+    if (!st->upstream_write_ready) {
+        st->upstream_write_ready = 1;
+        ngx_queue_insert_tail(&ac->upstream_mux.write_ready,
+                              &st->upstream_write_queue);
+    }
+
+    (void) ngx_anytls_upstream_mux_drain_writes(ac, 32);
+}
+
+
+void
+ngx_anytls_upstream_mux_close_stream(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_uint_t reason)
+{
+    if (st == NULL || st->state == NGX_ANYTLS_STREAM_CLOSED) {
+        return;
+    }
+
+    if (reason != 0) {
+        u_char code = (u_char) reason;
+        if (ngx_anytls_queue_frame(ac, st, NGX_ANYTLS_CMD_ALERT,
+                                   st->id, &code, 1) != NGX_OK)
+        {
+            /* Alert frame dropped; still proceed with close */
+        }
+    }
+
+    ngx_anytls_stream_send_fin_and_close(st);
 }
 
 
@@ -613,6 +704,10 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
         return ngx_anytls_upstream_send_pending(st);
     }
 
+    st->connect_pending = 1;
+    ngx_queue_insert_tail(&st->ac->upstream_mux.connect_pending,
+                          &st->connect_queue);
+
     if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
         return NGX_ERROR;
     }
@@ -781,6 +876,7 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
             ngx_anytls_stream_close(st);
             return;
         }
+        ngx_anytls_upstream_mux_on_connect_ready(st->ac, st);
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
         (void) ngx_anytls_send_synack(st, NULL, 0);
         if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
@@ -789,14 +885,7 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
         }
     }
 
-    /* Mark stream write_ready and let mux drain handle actual send */
-    if (!st->upstream_write_ready) {
-        st->upstream_write_ready = 1;
-        ngx_queue_insert_tail(&st->ac->upstream_mux.write_ready,
-                              &st->upstream_write_queue);
-    }
-
-    (void) ngx_anytls_upstream_mux_drain_writes(st->ac, 32);
+    ngx_anytls_upstream_mux_on_write_ready(st->ac, st);
 }
 
 void
@@ -808,21 +897,7 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
     c = rev->data;
     st = c->data;
 
-    if (st->state != NGX_ANYTLS_STREAM_CONNECTED
-        && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED)
-    {
-        return;
-    }
-
-    /* Mark stream read_ready and let upstream mux drain do the recv */
-    if (!st->upstream_read_ready && !st->upstream_read_blocked) {
-        st->upstream_read_ready = 1;
-        ngx_queue_insert_tail(&st->ac->upstream_mux.read_ready,
-                              &st->upstream_read_queue);
-    }
-
-    /* Trigger drain within a reasonable budget */
-    (void) ngx_anytls_upstream_mux_drain_reads(st->ac, 32);
+    ngx_anytls_upstream_mux_on_read_ready(st->ac, st);
 
     /* Re-arm read event if stream still active */
     if (st->upstream && !st->upstream_read_blocked

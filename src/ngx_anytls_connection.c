@@ -519,7 +519,7 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
                     return NGX_OK;
                 }
             }
-            return ngx_anytls_upstream_open(st, &addr);
+            return ngx_anytls_upstream_mux_open(ac, st, &addr);
         }
 
         if (ngx_anytls_uot_open(st, &addr) != NGX_OK) {

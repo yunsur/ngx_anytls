@@ -585,6 +585,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
             ngx_queue_remove(&st->upstream_block);
             ngx_queue_init(&st->upstream_block);
             st->upstream_read_blocked = 0;
+            st->blocked_by_upstream = 0;
             continue;
         }
 
@@ -601,6 +602,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
         ngx_queue_remove(&st->upstream_block);
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
+        st->blocked_by_upstream = 0;
         if (ngx_handle_read_event(st->upstream->read, 0) != NGX_OK) {
             ngx_anytls_stream_close(st);
             return;

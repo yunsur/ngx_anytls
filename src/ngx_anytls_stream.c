@@ -35,6 +35,13 @@ ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st)
         ngx_queue_remove(&st->upstream_block);
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
+        st->blocked_by_upstream = 0;
+    }
+
+    if (st->connect_pending) {
+        ngx_queue_remove(&st->connect_queue);
+        ngx_queue_init(&st->connect_queue);
+        st->connect_pending = 0;
     }
 
     ngx_log_debug1(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
@@ -157,6 +164,7 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
     ngx_queue_init(&st->upstream_block);
     ngx_queue_init(&st->upstream_read_queue);
     ngx_queue_init(&st->upstream_write_queue);
+    ngx_queue_init(&st->connect_queue);
     ngx_queue_init(&st->closing_queue);
     ngx_queue_init(&st->uot_pending);
 
@@ -296,6 +304,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
             ngx_queue_remove(&st->upstream_block);
             ngx_queue_init(&st->upstream_block);
             st->upstream_read_blocked = 0;
+            st->blocked_by_upstream = 0;
+        }
+        if (st->connect_pending) {
+            ngx_queue_remove(&st->connect_queue);
+            ngx_queue_init(&st->connect_queue);
+            st->connect_pending = 0;
         }
         return;
     }
@@ -304,6 +318,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_queue_remove(&st->upstream_block);
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
+        st->blocked_by_upstream = 0;
     }
 
     st->state = NGX_ANYTLS_STREAM_CLOSED;
@@ -363,6 +378,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_queue_remove(&st->upstream_block);
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
+        st->blocked_by_upstream = 0;
+    }
+    if (st->connect_pending) {
+        ngx_queue_remove(&st->connect_queue);
+        ngx_queue_init(&st->connect_queue);
+        st->connect_pending = 0;
     }
     if (was_closing) {
         ngx_queue_remove(&st->closing_queue);
