@@ -3,6 +3,8 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_upstream.h"
+#include "ngx_anytls_core.h"
+#include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_connection.h"
@@ -353,7 +355,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
 
     if (rc == NGX_OK) {
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
-        (void) ngx_anytls_send_synack(st, NULL, 0);
+        (void) ngx_anytls_client_mux_send_synack(st, NULL, 0);
         if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
             return NGX_ERROR;
         }
@@ -527,16 +529,16 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
 
     if (st->state == NGX_ANYTLS_STREAM_CONNECTING) {
         if (ngx_anytls_test_connect(c) != NGX_OK) {
-            (void) ngx_anytls_send_synack(st, (u_char *) "connect failed",
+            (void) ngx_anytls_client_mux_send_synack(st, (u_char *) "connect failed",
                                           sizeof("connect failed") - 1);
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
             return;
         }
         ngx_anytls_upstream_mux_on_connect_ready(st->ac, st);
         st->state = NGX_ANYTLS_STREAM_CONNECTED;
-        (void) ngx_anytls_send_synack(st, NULL, 0);
+        (void) ngx_anytls_client_mux_send_synack(st, NULL, 0);
         if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
             return;
         }
     }

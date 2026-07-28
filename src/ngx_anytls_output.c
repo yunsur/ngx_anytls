@@ -164,7 +164,7 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
                            "anytls: retry delayed stream %ui close",
                            (ngx_uint_t) st->id);
         }
-        ngx_anytls_stream_close(st);
+        ngx_anytls_core_stream_close(st);
     }
 }
 
@@ -639,7 +639,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
                        ngx_queue_size(&ac->blocked_upstream_reads));
 
         if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
             return;
         }
         ac->resumed_streams++;
@@ -847,7 +847,7 @@ ngx_anytls_mux_drain_closing_streams(ngx_anytls_connection_t *ac)
             ngx_queue_remove(q);
             ngx_queue_init(q);
             st->closing = 0;
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
         }
     }
 }
@@ -942,13 +942,4 @@ ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac)
     }
 
     (void) ngx_anytls_mux_drain_client(ac, 0, NULL);
-}
-
-
-ngx_int_t
-ngx_anytls_client_mux_queue_error(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st, u_char *data, size_t len)
-{
-    return ngx_anytls_queue_ref_frame(ac, st, NGX_ANYTLS_CMD_ALERT,
-                                      st ? st->id : 0, data, len);
 }

@@ -11,6 +11,7 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_core.h"
+#include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_state.h"
 
@@ -52,7 +53,7 @@ ngx_anytls_uot_queue_udp_frame(ngx_anytls_stream_t *st, ngx_chain_t *cl,
     b->pos = pos;
     b->last = pos + len;
 
-    return ngx_anytls_queue_chain_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
+    return ngx_anytls_client_mux_queue_chain_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
                                         st->id, cl, len, 1);
 }
 
@@ -264,7 +265,7 @@ ngx_anytls_uot_idle_timeout_handler(ngx_event_t *ev)
                   (ngx_uint_t) st->id);
 
     ngx_anytls_uot_close(st);
-    ngx_anytls_stream_send_fin_and_close(st);
+    ngx_anytls_core_stream_send_fin(st);
 }
 
 
@@ -556,7 +557,7 @@ ngx_anytls_uot_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
     st->state = NGX_ANYTLS_STREAM_CONNECTED;
     st->uot_request_parsed = (addr->mode != NGX_ANYTLS_ADDR_UOT_V2_CONNECT);
 
-    return ngx_anytls_send_synack(st, NULL, 0);
+    return ngx_anytls_client_mux_send_synack(st, NULL, 0);
 }
 
 ngx_int_t
@@ -894,7 +895,7 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
             break;
         }
         if (rc != NGX_OK) {
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
             return;
         }
     }

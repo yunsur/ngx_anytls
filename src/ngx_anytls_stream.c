@@ -1,4 +1,5 @@
 #include <ngx_config.h>
+#include "ngx_anytls_client_mux.h"
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
@@ -208,7 +209,7 @@ ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st)
     st->out_closed = 1;
 
     if (!st->fin_queued && !st->fin_sent) {
-        rc = ngx_anytls_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
+        rc = ngx_anytls_client_mux_queue_frame(st->ac, st, NGX_ANYTLS_CMD_FIN,
                                     st->id, NULL, 0);
         if (rc != NGX_OK) {
             return rc;

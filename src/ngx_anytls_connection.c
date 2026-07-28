@@ -5,6 +5,7 @@
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_core.h"
+#include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
@@ -368,7 +369,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         ac->peer_version = settings.version;
         ac->state = NGX_ANYTLS_CONN_READY;
         if (ac->peer_version >= 2) {
-            if (ngx_anytls_queue_ref_frame(ac, NULL,
+            if (ngx_anytls_client_mux_queue_ref_frame(ac, NULL,
                                            NGX_ANYTLS_CMD_SERVER_SETTINGS, 0,
                                            server_settings.data,
                                            server_settings.len) != NGX_OK)
@@ -380,7 +381,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             || ngx_strncmp(settings.padding_md5.data, ac->conf->padding_md5, 32)
                != 0)
         {
-            if (ngx_anytls_queue_ref_frame(ac, NULL,
+            if (ngx_anytls_client_mux_queue_ref_frame(ac, NULL,
                                            NGX_ANYTLS_CMD_UPDATE_PADDING, 0,
                                            ac->conf->padding_data,
                                            ac->conf->padding_data_len) != NGX_OK)
@@ -391,7 +392,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         return NGX_OK;
 
     case NGX_ANYTLS_CMD_HEART_REQUEST:
-        return ngx_anytls_queue_frame(ac, NULL, NGX_ANYTLS_CMD_HEART_RESPONSE,
+        return ngx_anytls_client_mux_queue_frame(ac, NULL, NGX_ANYTLS_CMD_HEART_RESPONSE,
                                       frame->stream_id, NULL, 0);
 
     case NGX_ANYTLS_CMD_HEART_RESPONSE:
@@ -399,7 +400,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
 
     case NGX_ANYTLS_CMD_SYN:
         if (!ac->settings_received) {
-            (void) ngx_anytls_queue_ref_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
+            (void) ngx_anytls_client_mux_queue_ref_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
                                               (u_char *) "client did not send its settings",
                                               sizeof("client did not send its settings") - 1);
             (void) ngx_anytls_flush(ac, 0);
@@ -408,14 +409,14 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         if (frame->stream_id == 0) {
             return NGX_ERROR;
         }
-        if (ngx_anytls_stream_exists(ac, frame->stream_id)) {
+        if (ngx_anytls_core_stream_exists(ac, frame->stream_id)) {
             return NGX_OK;
         }
-        st = ngx_anytls_stream_create(ac, frame->stream_id);
+        st = ngx_anytls_core_stream_create(ac, frame->stream_id);
         return st ? NGX_OK : NGX_ERROR;
 
     case NGX_ANYTLS_CMD_PSH:
-        st = ngx_anytls_stream_find(ac, frame->stream_id);
+        st = ngx_anytls_core_stream_find(ac, frame->stream_id);
         if (st == NULL) {
             return NGX_OK;
         }
@@ -427,13 +428,13 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         return ngx_anytls_handle_psh(ac, st, frame);
 
     case NGX_ANYTLS_CMD_FIN:
-        st = ngx_anytls_stream_find(ac, frame->stream_id);
+        st = ngx_anytls_core_stream_find(ac, frame->stream_id);
         if (st) {
-            ngx_anytls_stream_mark_closed_by_protocol(st);
+            ngx_anytls_core_stream_mark_closed(st);
 
             if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
                 ngx_anytls_uot_close(st);
-                ngx_anytls_stream_close(st);
+                ngx_anytls_core_stream_close(st);
 
             } else if (st->upstream
                        && st->state == NGX_ANYTLS_STREAM_CONNECTED)
@@ -445,7 +446,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
                 ngx_int_t rc = ngx_anytls_upstream_send_pending(st);
 
                 if (rc == NGX_ERROR) {
-                    ngx_anytls_stream_close(st);
+                    ngx_anytls_core_stream_close(st);
 
                 } else if (st->pending_in == NULL) {
                     ngx_anytls_transport_shutdown_write(st->upstream);
@@ -458,7 +459,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
 
             } else {
                 /* No upstream yet or still connecting — close immediately */
-                ngx_anytls_stream_close(st);
+                ngx_anytls_core_stream_close(st);
             }
         }
         return NGX_OK;
@@ -657,7 +658,7 @@ ngx_anytls_client_write_handler(ngx_event_t *wev)
 
     {
         ngx_anytls_drain_result_t dr;
-        if (ngx_anytls_mux_drain_client(ac, 0, &dr) == NGX_ERROR) {
+        if (ngx_anytls_client_mux_drain(ac, 0, &dr) == NGX_ERROR) {
             ngx_anytls_finalize(ac);
         } else if (dr.can_finalize) {
             ngx_anytls_finalize(ac);
@@ -701,8 +702,8 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
     {
         next = ngx_queue_next(q);
         st = ngx_queue_data(q, ngx_anytls_stream_t, link);
-        ngx_anytls_stream_mark_closed_by_protocol(st);
-        ngx_anytls_stream_close(st);
+        ngx_anytls_core_stream_mark_closed(st);
+        ngx_anytls_core_stream_close(st);
     }
 
     while (ac->free_read_bufs) {

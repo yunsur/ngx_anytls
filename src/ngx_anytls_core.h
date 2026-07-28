@@ -7,6 +7,11 @@
 #include "ngx_anytls_protocol.h"
 #include "ngx_anytls_socksaddr.h"
 
+struct ngx_anytls_connection_s;
+typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
+struct ngx_anytls_stream_s;
+typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
+
 
 /* Core interface — protocol primitives and stream lifecycle.
  *
@@ -43,6 +48,18 @@ const char *ngx_anytls_core_cmd_name(ngx_uint_t cmd);
 ngx_int_t ngx_anytls_core_parse_uot_packet(ngx_pool_t *pool, u_char *data,
     size_t len, ngx_anytls_addr_t *addr, u_char **payload,
     size_t *payload_len, size_t *consumed);
+
+
+/* Stream lifecycle — state machine and registry */
+ngx_anytls_stream_t *ngx_anytls_core_stream_create(
+    ngx_anytls_connection_t *ac, uint32_t id);
+ngx_anytls_stream_t *ngx_anytls_core_stream_find(
+    ngx_anytls_connection_t *ac, uint32_t id);
+ngx_uint_t ngx_anytls_core_stream_exists(
+    ngx_anytls_connection_t *ac, uint32_t id);
+void ngx_anytls_core_stream_close(ngx_anytls_stream_t *st);
+void ngx_anytls_core_stream_mark_closed(ngx_anytls_stream_t *st);
+ngx_int_t ngx_anytls_core_stream_send_fin(ngx_anytls_stream_t *st);
 
 
 #endif

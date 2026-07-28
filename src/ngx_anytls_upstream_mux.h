@@ -32,6 +32,8 @@ void ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
 void ngx_anytls_upstream_mux_close_stream(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t reason);
+void ngx_anytls_upstream_mux_on_timeout(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st);
 
 
 #endif

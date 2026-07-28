@@ -5,6 +5,7 @@
 #include "ngx_anytls_protocol.h"
 #include "ngx_anytls_padding.h"
 #include "ngx_anytls_socksaddr.h"
+#include "ngx_anytls_stream.h"
 #include <openssl/sha.h>
 
 
@@ -77,4 +78,46 @@ ngx_anytls_core_parse_uot_packet(ngx_pool_t *pool, u_char *data,
 {
     return ngx_anytls_parse_uot_packet(pool, data, len, addr, payload,
                                        payload_len, consumed);
+}
+
+
+ngx_anytls_stream_t *
+ngx_anytls_core_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
+{
+    return ngx_anytls_stream_create(ac, id);
+}
+
+
+ngx_anytls_stream_t *
+ngx_anytls_core_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
+{
+    return ngx_anytls_stream_find(ac, id);
+}
+
+
+ngx_uint_t
+ngx_anytls_core_stream_exists(ngx_anytls_connection_t *ac, uint32_t id)
+{
+    return ngx_anytls_stream_exists(ac, id);
+}
+
+
+void
+ngx_anytls_core_stream_close(ngx_anytls_stream_t *st)
+{
+    ngx_anytls_stream_close(st);
+}
+
+
+void
+ngx_anytls_core_stream_mark_closed(ngx_anytls_stream_t *st)
+{
+    ngx_anytls_stream_mark_closed_by_protocol(st);
+}
+
+
+ngx_int_t
+ngx_anytls_core_stream_send_fin(ngx_anytls_stream_t *st)
+{
+    return ngx_anytls_stream_send_fin_and_close(st);
 }

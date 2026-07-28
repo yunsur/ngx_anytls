@@ -3,6 +3,8 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_resolver.h"
+#include "ngx_anytls_core.h"
+#include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_output.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
@@ -187,7 +189,7 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
             st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
             st->resolver_domain_len = 0;
             st->resolver_port = 0;
-            (void) ngx_anytls_send_synack(st, (u_char *) "resolve failed",
+            (void) ngx_anytls_client_mux_send_synack(st, (u_char *) "resolve failed",
                                           sizeof("resolve failed") - 1);
         } else if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
             ngx_resolve_name_done(resolve);
@@ -200,7 +202,7 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
             st->resolver_port = 0;
         }
 
-        ngx_anytls_stream_close(st);
+        ngx_anytls_core_stream_close(st);
         return;
     }
 
@@ -211,7 +213,7 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
         st->resolver_domain_len = 0;
         st->resolver_port = 0;
         if (ngx_anytls_upstream_open_resolved(st) != NGX_OK) {
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
         }
         return;
     }
@@ -221,14 +223,14 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
         st->resolver_domain_len = 0;
         st->resolver_port = 0;
         if (ngx_anytls_uot_resolved(st) != NGX_OK) {
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
         }
         return;
     }
 
     if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
         if (ngx_anytls_uot_packet_resolved(st) != NGX_OK) {
-            ngx_anytls_stream_close(st);
+            ngx_anytls_core_stream_close(st);
         }
         return;
     }
