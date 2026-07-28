@@ -571,6 +571,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
     ngx_queue_t *q, *next;
     ngx_anytls_stream_t *st;
     size_t size;
+    ngx_connection_t *c;
 
     for (q = ngx_queue_head(&ac->blocked_upstream_reads);
          q != ngx_queue_sentinel(&ac->blocked_upstream_reads);
@@ -579,7 +580,10 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
         next = ngx_queue_next(q);
         st = ngx_queue_data(q, ngx_anytls_stream_t, upstream_block);
 
-        if (st->upstream == NULL
+        c = (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT)
+                ? st->udp : st->upstream;
+
+        if (c == NULL
             || st->state != NGX_ANYTLS_STREAM_CONNECTED)
         {
             ngx_queue_remove(&st->upstream_block);
@@ -603,7 +607,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;
         st->blocked_by_upstream = 0;
-        if (ngx_handle_read_event(st->upstream->read, 0) != NGX_OK) {
+        if (ngx_handle_read_event(c->read, 0) != NGX_OK) {
             ngx_anytls_stream_close(st);
             return;
         }

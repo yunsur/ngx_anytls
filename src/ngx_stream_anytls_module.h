@@ -206,6 +206,7 @@ struct ngx_anytls_stream_s {
     size_t                   uot_recv_size;
     ngx_msec_t               uot_drop_log_time;
     ngx_uint_t               uot_drop_count;
+    ngx_event_t             *uot_timer;
     unsigned                 uot_request_parsed:1;
 };
 
