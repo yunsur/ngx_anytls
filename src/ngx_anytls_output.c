@@ -640,6 +640,7 @@ ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
             ngx_anytls_stream_close(st);
             return;
         }
+        ac->resumed_streams++;
     }
 }
 
@@ -861,6 +862,7 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
         budget = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
     }
 
+    ac->resumed_streams = 0;
     prev_pending = ac->pending_output;
 
     /* Before draining, check if closing streams can be finalized */
@@ -921,6 +923,7 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
         }
 
         result->pending_delta = drained;
+        result->streams_resumed = ac->resumed_streams;
         result->pressure_on = ac->output_pressure ? 1 : 0;
         result->can_finalize = can_finalize;
     }

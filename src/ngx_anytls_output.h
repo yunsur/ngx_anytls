@@ -5,6 +5,7 @@
 
 typedef struct {
     size_t       pending_delta;
+    ngx_uint_t   streams_resumed;
     unsigned     pressure_on:1;
     unsigned     can_finalize:1;
 } ngx_anytls_drain_result_t;

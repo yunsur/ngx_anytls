@@ -260,6 +260,7 @@ struct ngx_anytls_connection_s {
     ngx_uint_t               frames;
 
     ngx_queue_t              closing_streams;
+    ngx_uint_t               resumed_streams;
 
     ngx_anytls_upstream_mux_t upstream_mux;
     ngx_event_t              write_timer;
