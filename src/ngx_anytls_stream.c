@@ -194,20 +194,6 @@ ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st)
 
 
 void
-ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st)
-{
-    if (!st->queued) {
-        if (ngx_anytls_upstream_mux_is_uot(st)) {
-            ngx_queue_insert_head(&st->ac->ready_streams, &st->ready_queue);
-        } else {
-            ngx_queue_insert_tail(&st->ac->ready_streams, &st->ready_queue);
-        }
-        st->queued = 1;
-    }
-}
-
-
-void
 ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st)
 {
     if (st->queued) {

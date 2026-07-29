@@ -96,3 +96,19 @@ ngx_anytls_client_mux_queue_error(ngx_anytls_connection_t *ac,
     return ngx_anytls_queue_ref_frame(ac, st, NGX_ANYTLS_CMD_ALERT,
                                       st ? st->id : 0, data, len);
 }
+
+
+void
+ngx_anytls_client_mux_mark_ready(ngx_anytls_stream_t *st)
+{
+    if (st->queued) {
+        return;
+    }
+
+    if (ngx_anytls_upstream_mux_is_uot(st)) {
+        ngx_queue_insert_head(&st->ac->ready_streams, &st->ready_queue);
+    } else {
+        ngx_queue_insert_tail(&st->ac->ready_streams, &st->ready_queue);
+    }
+    st->queued = 1;
+}

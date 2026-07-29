@@ -264,7 +264,7 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
         } else {
             *st->out_last = f;
             st->out_last = &f->next;
-            ngx_anytls_stream_mark_ready(st);
+            ngx_anytls_client_mux_mark_ready(st);
             st->direct_count = 0;
         }
 
@@ -500,7 +500,7 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac,
             bytes += f->length;
 
             if (st->out != NULL) {
-                ngx_anytls_stream_mark_ready(st);
+                ngx_anytls_client_mux_mark_ready(st);
             }
         }
     } else {
@@ -528,7 +528,7 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac,
             bytes += f->length;
 
             if (st->out != NULL) {
-                ngx_anytls_stream_mark_ready(st);
+                ngx_anytls_client_mux_mark_ready(st);
             }
         }
     }

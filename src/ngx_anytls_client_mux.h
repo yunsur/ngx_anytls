@@ -45,5 +45,6 @@ void ngx_anytls_client_mux_on_writable(ngx_anytls_connection_t *ac);
 void ngx_anytls_client_mux_resume_upstream_reads(ngx_anytls_connection_t *ac);
 ngx_int_t ngx_anytls_client_mux_queue_error(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, u_char *data, size_t len);
+void ngx_anytls_client_mux_mark_ready(ngx_anytls_stream_t *st);
 
 #endif
