@@ -35,6 +35,7 @@ _NGX_ADDON_DEPS=" \
     $ngx_addon_dir/src/ngx_anytls_uot.h \
     $ngx_addon_dir/src/ngx_anytls_core.h \
     $ngx_addon_dir/src/ngx_anytls_client_mux.h \
+    $ngx_addon_dir/src/ngx_anytls_private.h \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.h \
 "
 

@@ -10,6 +10,18 @@
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_transport_ngx.h"
+#include "ngx_anytls_private.h"
+
+
+ngx_pool_t *
+ngx_anytls_stream_pool(ngx_anytls_stream_t *st)
+{
+    if (st->pool == NULL) {
+        st->pool = ngx_create_pool(NGX_ANYTLS_STREAM_POOL_SIZE,
+                                   st->ac->log);
+    }
+    return st->pool;
+}
 
 
 ngx_int_t

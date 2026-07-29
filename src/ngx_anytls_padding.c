@@ -2,6 +2,7 @@
 #include <ngx_core.h>
 
 #include "ngx_anytls_padding.h"
+#include "ngx_anytls_private.h"
 
 ngx_int_t
 ngx_anytls_padding_validate(u_char *data, size_t len)

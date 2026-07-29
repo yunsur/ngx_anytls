@@ -12,6 +12,7 @@
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_fallback.h"
 #include "ngx_anytls_upstream_state.h"
+#include "ngx_anytls_private.h"
 
 static ngx_int_t ngx_anytls_process_auth(ngx_anytls_connection_t *ac,
     u_char *data, size_t len, size_t *consumed);

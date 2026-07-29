@@ -13,6 +13,7 @@
 #include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_state.h"
+#include "ngx_anytls_private.h"
 
 #define NGX_ANYTLS_UOT_MAX_HEADER  21
 

@@ -6,6 +6,7 @@
 #include "ngx_anytls_padding.h"
 #include "ngx_anytls_socksaddr.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_private.h"
 #include <openssl/sha.h>
 
 

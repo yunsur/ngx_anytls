@@ -16,13 +16,6 @@ void ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st);
 
 
-static ngx_inline ngx_pool_t *
-ngx_anytls_stream_pool(ngx_anytls_stream_t *st)
-{
-    if (st->pool == NULL) {
-        st->pool = ngx_create_pool(NGX_ANYTLS_STREAM_POOL_SIZE, st->ac->log);
-    }
-    return st->pool;
-}
+ngx_pool_t *ngx_anytls_stream_pool(ngx_anytls_stream_t *st);
 
 #endif

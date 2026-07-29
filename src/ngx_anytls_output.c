@@ -8,6 +8,7 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_transport_ngx.h"
+#include "ngx_anytls_private.h"
 
 static ngx_anytls_out_frame_t *ngx_anytls_get_frame(ngx_anytls_connection_t *ac);
 static void ngx_anytls_free_frame(ngx_anytls_connection_t *ac,

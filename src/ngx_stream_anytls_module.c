@@ -7,6 +7,7 @@
 #include "ngx_anytls_core.h"
 #include "ngx_anytls_padding.h"
 #include "ngx_anytls_connection.h"
+#include "ngx_anytls_private.h"
 
 static void *ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent,

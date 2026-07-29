@@ -11,6 +11,7 @@
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream_state.h"
+#include "ngx_anytls_private.h"
 
 static void *ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac,
     size_t len);

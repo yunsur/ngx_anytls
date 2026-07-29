@@ -10,6 +10,11 @@
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_upstream_state.h"
+#include "ngx_anytls_private.h"
+
+
+static ngx_uint_t ngx_anytls_upstream_mux_process_blocked(
+    ngx_anytls_connection_t *ac);
 
 
 ngx_int_t

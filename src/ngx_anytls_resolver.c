@@ -8,6 +8,7 @@
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_uot.h"
+#include "ngx_anytls_private.h"
 
 static void ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve);
 

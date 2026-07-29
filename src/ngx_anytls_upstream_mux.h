@@ -45,6 +45,8 @@ ngx_int_t ngx_anytls_upstream_mux_on_read_blocked(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_event_t *rev);
 void ngx_anytls_upstream_mux_stream_closing(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
+void ngx_anytls_upstream_mux_unblock_read(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st);
 
 
 #endif
