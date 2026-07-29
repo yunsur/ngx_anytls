@@ -197,7 +197,7 @@ void
 ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st)
 {
     if (!st->queued) {
-        if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
+        if (ngx_anytls_upstream_mux_is_uot(st)) {
             ngx_queue_insert_head(&st->ac->ready_streams, &st->ready_queue);
         } else {
             ngx_queue_insert_tail(&st->ac->ready_streams, &st->ready_queue);

@@ -37,6 +37,13 @@ static ngx_int_t ngx_anytls_upstream_mux_drain_writes(
     ngx_anytls_connection_t *ac, ngx_anytls_schedule_budget_t *sched);
 
 
+ngx_uint_t
+ngx_anytls_upstream_mux_is_uot(ngx_anytls_stream_t *st)
+{
+    return (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) ? 1 : 0;
+}
+
+
 ngx_int_t
 ngx_anytls_upstream_mux_init(ngx_anytls_connection_t *ac)
 {

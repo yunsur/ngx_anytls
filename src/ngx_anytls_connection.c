@@ -441,7 +441,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
         if (st) {
             ngx_anytls_core_stream_mark_closed(st);
 
-            if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
+            if (ngx_anytls_upstream_mux_is_uot(st)) {
                 ngx_anytls_uot_close(st);
                 ngx_anytls_core_stream_close(st);
 
@@ -546,7 +546,7 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         return NGX_OK;
     }
 
-    if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) {
+    if (ngx_anytls_upstream_mux_is_uot(st)) {
         return ngx_anytls_uot_client_payload(st, frame->data, frame->data_len);
     }
 
