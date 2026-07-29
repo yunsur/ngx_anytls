@@ -3,10 +3,14 @@
 
 #include "ngx_stream_anytls_module.h"
 
+/* Pass as max_bytes to ngx_anytls_upstream_send_pending to disable budget */
+#define NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED  ((size_t) -1)
+
 ngx_int_t ngx_anytls_upstream_open(ngx_anytls_stream_t *st,
     ngx_anytls_addr_t *addr);
 ngx_int_t ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st);
-ngx_int_t ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st);
+ngx_int_t ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st,
+    size_t max_bytes, size_t *sent_out);
 ngx_int_t ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data,
     size_t len);
 void ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st);

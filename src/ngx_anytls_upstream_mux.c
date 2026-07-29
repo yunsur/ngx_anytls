@@ -13,8 +13,27 @@
 #include "ngx_anytls_private.h"
 
 
+/* Per-cycle scheduling budget (internal to upstream mux).
+ * on_read_ready / on_write_ready initialise one of these and pass
+ * it to the corresponding static drain function. */
+typedef struct {
+    ngx_uint_t   frame_budget;
+    size_t       byte_budget;
+    ngx_uint_t   stream_budget;
+
+    ngx_uint_t   processed_frames;
+    size_t       processed_bytes;
+    ngx_uint_t   visited_streams;
+} ngx_anytls_schedule_budget_t;
+
+
 static ngx_uint_t ngx_anytls_upstream_mux_process_blocked(
     ngx_anytls_connection_t *ac);
+
+static ngx_int_t ngx_anytls_upstream_mux_drain_reads(
+    ngx_anytls_connection_t *ac, ngx_anytls_schedule_budget_t *sched);
+static ngx_int_t ngx_anytls_upstream_mux_drain_writes(
+    ngx_anytls_connection_t *ac, ngx_anytls_schedule_budget_t *sched);
 
 
 ngx_int_t
@@ -129,9 +148,9 @@ ngx_anytls_upstream_mux_stream_writable(ngx_anytls_stream_t *st)
 }
 
 
-ngx_int_t
+static ngx_int_t
 ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
-    ngx_uint_t budget)
+    ngx_anytls_schedule_budget_t *sched)
 {
     ngx_queue_t *q, *next;
     ngx_anytls_stream_t *st;
@@ -141,13 +160,10 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
     ssize_t n;
     size_t size;
     ngx_int_t rc;
-    ngx_uint_t frames;
-
-    frames = 0;
 
     for (q = ngx_queue_head(&ac->upstream_mux.read_ready);
          q != ngx_queue_sentinel(&ac->upstream_mux.read_ready)
-         && frames < budget;
+         && sched->visited_streams < sched->stream_budget;
          q = next)
     {
         next = ngx_queue_next(q);
@@ -167,8 +183,18 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
             size = NGX_ANYTLS_MAX_FRAME_DATA;
         }
 
+        sched->visited_streams++;
+
         for ( ;; ) {
-            if (frames >= budget) {
+            if (sched->processed_frames >= sched->frame_budget
+                || sched->processed_bytes >= sched->byte_budget)
+            {
+                ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                               "anytls: drain_reads budget st=%ui "
+                               "frames=%ui/%ui bytes=%uz/%uz",
+                               (ngx_uint_t) st->id,
+                               sched->processed_frames, sched->frame_budget,
+                               sched->processed_bytes, sched->byte_budget);
                 /* Budget exhausted — re-queue stream for next round */
                 if (!st->upstream_read_ready && !st->upstream_read_blocked) {
                     st->upstream_read_ready = 1;
@@ -178,11 +204,41 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                 break;
             }
 
-            if (ac->output_pressure || !ngx_anytls_client_mux_has_room(ac, size)) {
+            if (ac->output_pressure
+                || !ngx_anytls_client_mux_has_room(ac, size))
+            {
+                ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                               "anytls: drain_reads block st=%ui "
+                               "pressure=%d pend_out=%uz",
+                               (ngx_uint_t) st->id, ac->output_pressure,
+                               ac->pending_output);
                 if (ngx_anytls_upstream_block_read(st, c->read) != NGX_OK) {
                     ngx_anytls_core_stream_close(st);
                 }
                 goto next_stream;
+            }
+
+            /* Clamp read size to remaining byte budget so we never exceed */
+            if (sched->processed_bytes + size > sched->byte_budget) {
+                size = (sched->byte_budget > sched->processed_bytes)
+                       ? (sched->byte_budget - sched->processed_bytes)
+                       : 0;
+                if (size == 0) {
+                    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                                   "anytls: drain_reads byte_budget "
+                                   "exact st=%ui bytes=%uz/%uz",
+                                   (ngx_uint_t) st->id,
+                                   sched->processed_bytes,
+                                   sched->byte_budget);
+                    /* Re-queue, byte budget exactly hit */
+                    if (!st->upstream_read_ready && !st->upstream_read_blocked) {
+                        st->upstream_read_ready = 1;
+                        ngx_queue_insert_tail(
+                            &ac->upstream_mux.read_ready,
+                            &st->upstream_read_queue);
+                    }
+                    break;
+                }
             }
 
             cl = ngx_anytls_upstream_get_read_buf(ac, size);
@@ -266,7 +322,8 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
             ngx_anytls_upstream_state_add_bytes_received(ac->session,
                                                          &st->upstream_state, n);
             st->last_activity = ngx_current_msec;
-            frames++;
+            sched->processed_frames++;
+            sched->processed_bytes += (size_t) n;
         }
 
         (void) ngx_anytls_transport_arm_read(c);
@@ -278,19 +335,19 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
 }
 
 
-ngx_int_t
+static ngx_int_t
 ngx_anytls_upstream_mux_drain_writes(ngx_anytls_connection_t *ac,
-    ngx_uint_t budget)
+    ngx_anytls_schedule_budget_t *sched)
 {
     ngx_queue_t *q, *next;
     ngx_anytls_stream_t *st;
-    ngx_uint_t count;
-
-    count = 0;
+    size_t sent;
 
     for (q = ngx_queue_head(&ac->upstream_mux.write_ready);
          q != ngx_queue_sentinel(&ac->upstream_mux.write_ready)
-         && count < budget;
+         && sched->visited_streams < sched->stream_budget
+         && sched->processed_frames < sched->frame_budget
+         && sched->processed_bytes < sched->byte_budget;
          q = next)
     {
         next = ngx_queue_next(q);
@@ -300,13 +357,42 @@ ngx_anytls_upstream_mux_drain_writes(ngx_anytls_connection_t *ac,
         ngx_queue_remove(q);
         ngx_queue_init(q);
 
-        if (ngx_anytls_upstream_send_pending(st) == NGX_ERROR) {
+        sent = 0;
+
+        if (ngx_anytls_upstream_send_pending(
+                st, sched->byte_budget - sched->processed_bytes,
+                &sent)
+            == NGX_ERROR)
+        {
             ngx_anytls_core_stream_close(st);
-        } else {
-            st->last_activity = ngx_current_msec;
+            continue;
         }
 
-        count++;
+        st->last_activity = ngx_current_msec;
+        sched->visited_streams++;
+        sched->processed_frames++;
+        sched->processed_bytes += sent;
+
+        /* If more data remains (budget exhausted or stream has more
+         * to write), re-queue for the next cycle.  The outer loop
+         * stops when stream_budget / frame_budget / byte_budget
+         * are hit, so re-queuing here is safe — the stream will be
+         * picked up on the next drain_writes call. */
+        if (st->pending_in != NULL
+            && !st->upstream_write_ready
+            && ngx_anytls_upstream_mux_stream_writable(st))
+        {
+            ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                           "anytls: drain_writes requeue st=%ui "
+                           "pending=%uz frames=%ui/%ui",
+                           (ngx_uint_t) st->id,
+                           st->pending_in_bytes,
+                           sched->processed_frames,
+                           sched->frame_budget);
+            st->upstream_write_ready = 1;
+            ngx_queue_insert_tail(&ac->upstream_mux.write_ready,
+                                  &st->upstream_write_queue);
+        }
     }
 
     return NGX_OK;
@@ -406,6 +492,7 @@ void
 ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
+    ngx_anytls_schedule_budget_t sched;
     ngx_connection_t *c;
 
     c = (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT)
@@ -423,7 +510,21 @@ ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
                               &st->upstream_read_queue);
     }
 
-    (void) ngx_anytls_upstream_mux_drain_reads(ac, NGX_ANYTLS_MUX_DRAIN_BUDGET);
+    sched.frame_budget = NGX_ANYTLS_SCHEDULE_FRAME_BUDGET;
+    sched.byte_budget = NGX_ANYTLS_SCHEDULE_BYTE_BUDGET;
+    sched.stream_budget = NGX_ANYTLS_SCHEDULE_STREAM_BUDGET;
+    sched.processed_frames = 0;
+    sched.processed_bytes = 0;
+    sched.visited_streams = 0;
+
+    (void) ngx_anytls_upstream_mux_drain_reads(ac, &sched);
+
+    ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                   "anytls: drain_reads done st=%ui "
+                   "frames=%ui bytes=%uz streams=%ui",
+                   (ngx_uint_t) st->id,
+                   sched.processed_frames, sched.processed_bytes,
+                   sched.visited_streams);
 }
 
 
@@ -431,6 +532,8 @@ void
 ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
+    ngx_anytls_schedule_budget_t sched;
+
     if (!ngx_anytls_upstream_mux_stream_writable(st)) {
         return;
     }
@@ -441,7 +544,21 @@ ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
                               &st->upstream_write_queue);
     }
 
-    (void) ngx_anytls_upstream_mux_drain_writes(ac, NGX_ANYTLS_MUX_DRAIN_BUDGET);
+    sched.frame_budget = NGX_ANYTLS_SCHEDULE_FRAME_BUDGET;
+    sched.byte_budget = NGX_ANYTLS_SCHEDULE_BYTE_BUDGET;
+    sched.stream_budget = NGX_ANYTLS_SCHEDULE_STREAM_BUDGET;
+    sched.processed_frames = 0;
+    sched.processed_bytes = 0;
+    sched.visited_streams = 0;
+
+    (void) ngx_anytls_upstream_mux_drain_writes(ac, &sched);
+
+    ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                   "anytls: drain_writes done st=%ui "
+                   "frames=%ui bytes=%uz streams=%ui",
+                   (ngx_uint_t) st->id,
+                   sched.processed_frames, sched.processed_bytes,
+                   sched.visited_streams);
 }
 
 

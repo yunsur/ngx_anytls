@@ -6,7 +6,9 @@
 #include <ngx_stream.h>
 #include "ngx_anytls_socksaddr.h"
 
-#define NGX_ANYTLS_MUX_DRAIN_BUDGET  32
+#define NGX_ANYTLS_SCHEDULE_FRAME_BUDGET   32
+#define NGX_ANYTLS_SCHEDULE_BYTE_BUDGET    ((size_t) -1)
+#define NGX_ANYTLS_SCHEDULE_STREAM_BUDGET  16
 
 struct ngx_anytls_connection_s;
 typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
@@ -16,10 +18,6 @@ typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
 
 ngx_int_t ngx_anytls_upstream_mux_init(ngx_anytls_connection_t *ac);
 void ngx_anytls_upstream_mux_destroy(ngx_anytls_connection_t *ac);
-ngx_int_t ngx_anytls_upstream_mux_drain_reads(
-    ngx_anytls_connection_t *ac, ngx_uint_t budget);
-ngx_int_t ngx_anytls_upstream_mux_drain_writes(
-    ngx_anytls_connection_t *ac, ngx_uint_t budget);
 void ngx_anytls_upstream_mux_suspend_reads(ngx_anytls_connection_t *ac);
 void ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac);
 void ngx_anytls_upstream_mux_stream_output_drained(

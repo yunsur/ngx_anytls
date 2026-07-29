@@ -10,6 +10,10 @@
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_private.h"
 
+/* Default drain budget for client output cycles */
+#define NGX_ANYTLS_CLIENT_DRAIN_FRAMES  32
+
+
 static ngx_anytls_out_frame_t *ngx_anytls_get_frame(ngx_anytls_connection_t *ac);
 static void ngx_anytls_free_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_out_frame_t *f);
@@ -811,7 +815,7 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
     size_t prev_pending;
 
     if (budget == 0) {
-        budget = NGX_ANYTLS_MIN_SCHEDULE_FRAMES;
+        budget = NGX_ANYTLS_CLIENT_DRAIN_FRAMES;
     }
 
     ac->resumed_streams = 0;

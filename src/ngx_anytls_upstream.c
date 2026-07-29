@@ -359,7 +359,9 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
         if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
             return NGX_ERROR;
         }
-        return ngx_anytls_upstream_send_pending(st);
+        return ngx_anytls_upstream_send_pending(st,
+                                        NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED,
+                                        NULL);
     }
 
     ngx_anytls_upstream_mux_on_connect_pending(st->ac, st);
@@ -457,35 +459,67 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
 }
 
 ngx_int_t
-ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
+ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st,
+    size_t max_bytes, size_t *sent_out)
 {
     ngx_connection_t *c;
     ngx_anytls_pending_t *p;
     ssize_t n;
+    size_t to_send;
+    size_t total;
+
+    /* API contract: always report how many bytes were sent */
+    if (sent_out) {
+        *sent_out = 0;
+    }
+
+    total = 0;
 
     c = st->upstream;
     if (c == NULL
         || (st->state != NGX_ANYTLS_STREAM_CONNECTED
             && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED))
     {
+        if (sent_out) {
+            *sent_out = total;
+        }
         return NGX_OK;
     }
 
     while (st->pending_in) {
         p = st->pending_in;
-        n = ngx_anytls_transport_send(c, p->data + p->sent, p->len - p->sent);
+        to_send = p->len - p->sent;
+        if (to_send > max_bytes) {
+            to_send = max_bytes;
+        }
+        n = ngx_anytls_transport_send(c, p->data + p->sent, to_send);
         if (n == NGX_ERROR || n == 0) {
+            if (sent_out) {
+                *sent_out = total;
+            }
             return NGX_ERROR;
         }
         if (n == NGX_AGAIN) {
+            if (sent_out) {
+                *sent_out = total;
+            }
             return ngx_anytls_transport_arm_write(c);
         }
+
+        total += (size_t) n;
         p->sent += (size_t) n;
         ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
                                                  &st->upstream_state, n);
+
         if (p->sent != p->len) {
+            if (sent_out) {
+                *sent_out = total;
+            }
             return ngx_anytls_transport_arm_write(c);
         }
+
+        /* Buffer fully sent — clean up before checking budget so that
+         * st->pending_in reflects the true next buffer (or NULL). */
         st->pending_in = p->next;
         if (st->pending_in_bytes >= p->len) {
             st->pending_in_bytes -= p->len;
@@ -503,9 +537,30 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
         ngx_anytls_upstream_free_pending(st, p);
 
         if (ngx_anytls_upstream_update_input_state(st) != NGX_OK) {
+            if (sent_out) {
+                *sent_out = total;
+            }
             return NGX_ERROR;
         }
+
+        /* Drain byte budget after cleanup — if exhausted and more data
+         * exists, stop early so the scheduler can re-queue this stream
+         * for the next cycle. */
+        if (max_bytes != NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED) {
+            if (max_bytes >= (size_t) n) {
+                max_bytes -= (size_t) n;
+            } else {
+                max_bytes = 0;
+            }
+            if (max_bytes == 0 && st->pending_in != NULL) {
+                if (sent_out) {
+                    *sent_out = total;
+                }
+                return NGX_OK;
+            }
+        }
     }
+
     /* If client FIN arrived while data was still pending, the FIN handler
      * deferred half-close. Now that all data is flushed, do it. */
     if (st->pending_shutdown && st->upstream) {
@@ -513,6 +568,9 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st)
         ngx_anytls_transport_shutdown_write(st->upstream);
     }
 
+    if (sent_out) {
+        *sent_out = total;
+    }
     return ngx_anytls_resume_input(st->ac);
 }
 

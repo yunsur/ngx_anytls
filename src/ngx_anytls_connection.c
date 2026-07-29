@@ -443,7 +443,9 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
                  * drains immediately, half-close now; otherwise defer
                  * shutdown until the write handler completes the drain.
                  * On write error the upstream is broken — close immediately. */
-                ngx_int_t rc = ngx_anytls_upstream_send_pending(st);
+                ngx_int_t rc = ngx_anytls_upstream_send_pending(st,
+                                        NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED,
+                                        NULL);
 
                 if (rc == NGX_ERROR) {
                     ngx_anytls_core_stream_close(st);
