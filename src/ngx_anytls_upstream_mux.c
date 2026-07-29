@@ -10,6 +10,7 @@
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_upstream_state.h"
+#include "ngx_anytls_uot.h"
 #include "ngx_anytls_private.h"
 
 
@@ -120,6 +121,36 @@ ngx_anytls_upstream_mux_read_conn(ngx_anytls_stream_t *st)
 }
 
 
+/* Write connection — the TCP or connected-UoT stream socket. */
+static ngx_inline ngx_connection_t *
+ngx_anytls_upstream_mux_write_conn(ngx_anytls_stream_t *st)
+{
+    return st->upstream;
+}
+
+
+/* Close the upstream endpoint (TCP or UoT) and clear the pointer. */
+static void
+ngx_anytls_upstream_mux_close_endpoint(ngx_anytls_stream_t *st)
+{
+    if (st->upstream) {
+        ngx_anytls_transport_close(st->upstream);
+        st->upstream = NULL;
+    }
+    if (st->udp) {
+        ngx_anytls_uot_close(st);
+    }
+}
+
+
+/* Query: is upstream read currently blocked by output pressure? */
+static ngx_inline ngx_uint_t
+ngx_anytls_upstream_mux_read_blocked(ngx_anytls_stream_t *st)
+{
+    return st->upstream_read_blocked ? 1 : 0;
+}
+
+
 static ngx_inline ngx_int_t
 ngx_anytls_upstream_mux_stream_readable(ngx_anytls_stream_t *st)
 {
@@ -138,7 +169,7 @@ ngx_anytls_upstream_mux_stream_readable(ngx_anytls_stream_t *st)
 static ngx_inline ngx_int_t
 ngx_anytls_upstream_mux_stream_writable(ngx_anytls_stream_t *st)
 {
-    if (st->upstream == NULL) {
+    if (ngx_anytls_upstream_mux_write_conn(st) == NULL) {
         return 0;
     }
 
@@ -196,7 +227,9 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                                sched->processed_frames, sched->frame_budget,
                                sched->processed_bytes, sched->byte_budget);
                 /* Budget exhausted — re-queue stream for next round */
-                if (!st->upstream_read_ready && !st->upstream_read_blocked) {
+                if (!st->upstream_read_ready
+                    && !ngx_anytls_upstream_mux_read_blocked(st))
+                {
                     st->upstream_read_ready = 1;
                     ngx_queue_insert_tail(&ac->upstream_mux.read_ready,
                                           &st->upstream_read_queue);
@@ -231,7 +264,9 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                                    sched->processed_bytes,
                                    sched->byte_budget);
                     /* Re-queue, byte budget exactly hit */
-                    if (!st->upstream_read_ready && !st->upstream_read_blocked) {
+                    if (!st->upstream_read_ready
+                        && !ngx_anytls_upstream_mux_read_blocked(st))
+                    {
                         st->upstream_read_ready = 1;
                         ngx_queue_insert_tail(
                             &ac->upstream_mux.read_ready,
@@ -460,7 +495,7 @@ ngx_anytls_upstream_mux_stream_output_drained(ngx_anytls_connection_t *ac,
      * If this stream was blocked on output, re-enable upstream reads.
      * The global resume path handles this; per-stream resume is
      * a future optimization. */
-    if (st->upstream_read_blocked) {
+    if (ngx_anytls_upstream_mux_read_blocked(st)) {
         /* Let the global resume mechanism pick this stream up */
         ngx_anytls_client_mux_resume_upstream_reads(ac);
     }
@@ -477,6 +512,15 @@ ngx_anytls_upstream_mux_open(ngx_anytls_connection_t *ac,
      * on_connect_ready or stream_close).  DNS resolution pending is tracked
      * separately via st->resolver_pending / st->resolver_ctx. */
     return ngx_anytls_upstream_open(st, addr);
+}
+
+
+ngx_int_t
+ngx_anytls_upstream_mux_open_resolved(ngx_anytls_stream_t *st)
+{
+    /* Wrapper so resolver.c can go through the upstream mux interface
+     * instead of directly calling upstream_open_resolved(). */
+    return ngx_anytls_upstream_open_resolved(st);
 }
 
 
@@ -504,7 +548,9 @@ ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
         return;
     }
 
-    if (!st->upstream_read_ready && !st->upstream_read_blocked) {
+    if (!st->upstream_read_ready
+        && !ngx_anytls_upstream_mux_read_blocked(st))
+    {
         st->upstream_read_ready = 1;
         ngx_queue_insert_tail(&ac->upstream_mux.read_ready,
                               &st->upstream_read_queue);
@@ -578,6 +624,10 @@ ngx_anytls_upstream_mux_close_stream(ngx_anytls_connection_t *ac,
             /* Alert frame dropped; still proceed with close */
         }
     }
+
+    /* Close endpoint first so stream_close (called via send_fin) sees
+     * st->upstream == NULL and skips the redundant close. */
+    ngx_anytls_upstream_mux_close_endpoint(st);
 
     ngx_anytls_core_stream_send_fin(st);
 }
@@ -690,7 +740,7 @@ void
 ngx_anytls_upstream_mux_unblock_read(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    if (st->upstream_read_blocked) {
+    if (ngx_anytls_upstream_mux_read_blocked(st)) {
         ngx_queue_remove(&st->upstream_block);
         ngx_queue_init(&st->upstream_block);
         st->upstream_read_blocked = 0;

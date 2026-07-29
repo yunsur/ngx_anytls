@@ -7,6 +7,7 @@
 #include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
+#include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_private.h"
 
@@ -212,7 +213,7 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
         st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
         st->resolver_domain_len = 0;
         st->resolver_port = 0;
-        if (ngx_anytls_upstream_open_resolved(st) != NGX_OK) {
+        if (ngx_anytls_upstream_mux_open_resolved(st) != NGX_OK) {
             ngx_anytls_core_stream_close(st);
         }
         return;
