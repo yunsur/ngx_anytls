@@ -31,6 +31,26 @@ typedef struct {
 static ngx_uint_t ngx_anytls_upstream_mux_process_blocked(
     ngx_anytls_connection_t *ac);
 
+
+/* Return the number of elements in a ngx_queue_t.
+ * nginx core does not provide this; it is needed for debug logging. */
+static ngx_inline ngx_uint_t
+ngx_queue_size(ngx_queue_t *q)
+{
+    ngx_queue_t  *pos;
+    ngx_uint_t    n;
+
+    n = 0;
+    for (pos = ngx_queue_head(q);
+         pos != ngx_queue_sentinel(q);
+         pos = ngx_queue_next(pos))
+    {
+        n++;
+    }
+    return n;
+}
+
+
 static ngx_int_t ngx_anytls_upstream_mux_drain_reads(
     ngx_anytls_connection_t *ac, ngx_anytls_schedule_budget_t *sched);
 static ngx_int_t ngx_anytls_upstream_mux_drain_writes(
