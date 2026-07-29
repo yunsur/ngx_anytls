@@ -185,19 +185,6 @@ ngx_anytls_upstream_mux_write_conn(ngx_anytls_stream_t *st)
 }
 
 
-/* Close the upstream endpoint (TCP or UoT) and clear the pointer. */
-static void
-ngx_anytls_upstream_mux_close_endpoint(ngx_anytls_stream_t *st)
-{
-    if (st->upstream) {
-        ngx_anytls_transport_close(st->upstream);
-        st->upstream = NULL;
-    }
-    if (st->udp) {
-        ngx_anytls_uot_close(st);
-    }
-}
-
 
 /* Query: is upstream read currently blocked by output pressure? */
 static ngx_inline ngx_uint_t
@@ -543,21 +530,6 @@ ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac)
 }
 
 
-void
-ngx_anytls_upstream_mux_stream_output_drained(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st)
-{
-    /* Called when a stream's pending output has been drained (sent to client).
-     * If this stream was blocked on output, re-enable upstream reads.
-     * The global resume path handles this; per-stream resume is
-     * a future optimization. */
-    if (ngx_anytls_upstream_mux_read_blocked(st)) {
-        /* Let the global resume mechanism pick this stream up */
-        ngx_anytls_client_mux_resume_upstream_reads(ac);
-    }
-}
-
-
 ngx_int_t
 ngx_anytls_upstream_mux_open(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
@@ -661,47 +633,6 @@ ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
                    (ngx_uint_t) st->id,
                    sched.processed_frames, sched.processed_bytes,
                    sched.visited_streams);
-}
-
-
-void
-ngx_anytls_upstream_mux_close_stream(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st, ngx_uint_t reason)
-{
-    if (st == NULL || st->state == NGX_ANYTLS_STREAM_CLOSED) {
-        return;
-    }
-
-    if (reason != 0) {
-        u_char code = (u_char) reason;
-        if (ngx_anytls_client_mux_queue_frame(ac, st, NGX_ANYTLS_CMD_ALERT,
-                                   st->id, &code, 1) != NGX_OK)
-        {
-            /* Alert frame dropped; still proceed with close */
-        }
-    }
-
-    /* Close endpoint first so stream_close (called via send_fin) sees
-     * st->upstream == NULL and skips the redundant close. */
-    ngx_anytls_upstream_mux_close_endpoint(st);
-
-    ngx_anytls_core_stream_send_fin(st);
-}
-
-
-void
-ngx_anytls_upstream_mux_on_timeout(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st)
-{
-    if (st == NULL || st->state == NGX_ANYTLS_STREAM_CLOSED) {
-        return;
-    }
-
-    ngx_log_error(NGX_LOG_INFO, ngx_anytls_conn_log(ac), 0,
-                  "anytls: upstream timeout for stream %ui",
-                  (ngx_uint_t) st->id);
-
-    ngx_anytls_upstream_mux_close_stream(ac, st, 1);
 }
 
 

@@ -666,7 +666,7 @@ ngx_anytls_post_write(ngx_anytls_connection_t *ac)
 }
 
 
-ngx_int_t
+static ngx_int_t
 ngx_anytls_flush(ngx_anytls_connection_t *ac, ngx_uint_t budget)
 {
     ngx_connection_t *c;
