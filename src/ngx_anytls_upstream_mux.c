@@ -220,7 +220,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
             if (sched->processed_frames >= sched->frame_budget
                 || sched->processed_bytes >= sched->byte_budget)
             {
-                ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                                "anytls: drain_reads budget st=%ui "
                                "frames=%ui/%ui bytes=%uz/%uz",
                                (ngx_uint_t) st->id,
@@ -240,7 +240,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
             if (ac->output_pressure
                 || !ngx_anytls_client_mux_has_room(ac, size))
             {
-                ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                                "anytls: drain_reads block st=%ui "
                                "pressure=%d pend_out=%uz",
                                (ngx_uint_t) st->id, ac->output_pressure,
@@ -257,7 +257,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                        ? (sched->byte_budget - sched->processed_bytes)
                        : 0;
                 if (size == 0) {
-                    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                                    "anytls: drain_reads byte_budget "
                                    "exact st=%ui bytes=%uz/%uz",
                                    (ngx_uint_t) st->id,
@@ -417,7 +417,7 @@ ngx_anytls_upstream_mux_drain_writes(ngx_anytls_connection_t *ac,
             && !st->upstream_write_ready
             && ngx_anytls_upstream_mux_stream_writable(st))
         {
-            ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+            ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                            "anytls: drain_writes requeue st=%ui "
                            "pending=%uz frames=%ui/%ui",
                            (ngx_uint_t) st->id,
@@ -565,7 +565,7 @@ ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
 
     (void) ngx_anytls_upstream_mux_drain_reads(ac, &sched);
 
-    ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+    ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                    "anytls: drain_reads done st=%ui "
                    "frames=%ui bytes=%uz streams=%ui",
                    (ngx_uint_t) st->id,
@@ -599,7 +599,7 @@ ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
 
     (void) ngx_anytls_upstream_mux_drain_writes(ac, &sched);
 
-    ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+    ngx_log_debug4(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                    "anytls: drain_writes done st=%ui "
                    "frames=%ui bytes=%uz streams=%ui",
                    (ngx_uint_t) st->id,
@@ -641,7 +641,7 @@ ngx_anytls_upstream_mux_on_timeout(ngx_anytls_connection_t *ac,
         return;
     }
 
-    ngx_log_error(NGX_LOG_INFO, ac->log, 0,
+    ngx_log_error(NGX_LOG_INFO, ngx_anytls_conn_log(ac), 0,
                   "anytls: upstream timeout for stream %ui",
                   (ngx_uint_t) st->id);
 
@@ -712,7 +712,7 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
 
         ngx_anytls_upstream_mux_unblock_read(ac, st);
 
-        ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+        ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                        "anytls: upstream resume st=%ui pend_out=%uz "
                        "blocked_qlen=%ui",
                        (ngx_uint_t) st->id, st->pending_out,

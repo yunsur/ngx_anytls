@@ -8,6 +8,7 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_transport_ngx.h"
+#include "ngx_anytls_connection.h"
 #include "ngx_anytls_private.h"
 
 /* Default drain budget for client output cycles */
@@ -147,7 +148,7 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
         }
     }
 
-    ngx_log_debug6(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+    ngx_log_debug6(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                    "anytls: frame sent cmd=%d st=%ui len=%uz "
                    "pend_out=%uz qframes=%ui a_frames=%ui",
                    (int) f->cmd,
@@ -165,7 +166,7 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
         && st->queued_frames == 0)
     {
         if (st->delayed_close) {
-            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                            "anytls: retry delayed stream %ui close",
                            (ngx_uint_t) st->id);
         }
@@ -201,7 +202,7 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
     strong_ref = ngx_anytls_frame_strong_ref(f->cmd, st);
 
     if (ac->frames >= NGX_ANYTLS_MAX_OUT_FRAMES) {
-        ngx_log_error(NGX_LOG_WARN, ac->log, 0,
+        ngx_log_error(NGX_LOG_WARN, ngx_anytls_conn_log(ac), 0,
                       "anytls: output frame guard exceeded");
         ngx_anytls_free_frame(ac, f);
         return NGX_ERROR;
@@ -210,7 +211,7 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
     if (strong_ref && f->cmd == NGX_ANYTLS_CMD_PSH
         && st->queued_frames >= NGX_ANYTLS_MAX_STREAM_FRAMES)
     {
-        ngx_log_error(NGX_LOG_WARN, ac->log, 0,
+        ngx_log_error(NGX_LOG_WARN, ngx_anytls_conn_log(ac), 0,
                       "anytls: stream %ui output frame guard exceeded",
                       (ngx_uint_t) st->id);
         ngx_anytls_free_frame(ac, f);
@@ -274,7 +275,7 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
     ac->pending_output += f->length;
     ac->frames++;
 
-    ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+    ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                    "anytls: queue frame cmd=%d st=%ui len=%uz "
                    "pend_out=%uz frames=%ui",
                    (int) f->cmd,
@@ -310,7 +311,7 @@ ngx_anytls_queue_frame(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
     f->blocked = (cmd == NGX_ANYTLS_CMD_PSH || cmd == NGX_ANYTLS_CMD_FIN) ? 0 : 1;
 
     if (len) {
-        f->payload_buf.start = ngx_alloc(len, ac->log);
+        f->payload_buf.start = ngx_alloc(len, ngx_anytls_conn_log(ac));
         if (f->payload_buf.start == NULL) {
             ngx_anytls_free_frame(ac, f);
             return NGX_ERROR;
@@ -532,7 +533,7 @@ ngx_anytls_schedule_stream_frames(ngx_anytls_connection_t *ac,
         }
     }
 
-    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+    ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                    "anytls: schedule done frames=%ui bytes=%uz ready_empty=%d",
                    frames, bytes,
                    ngx_queue_empty(&ac->ready_streams));
@@ -611,7 +612,7 @@ ngx_anytls_write_timeout_handler(ngx_event_t *ev)
         return;
     }
 
-    ngx_log_error(NGX_LOG_INFO, ac->log, 0,
+    ngx_log_error(NGX_LOG_INFO, ngx_anytls_conn_log(ac), 0,
                   "anytls: control write timeout after %M ms",
                   ac->conf->write_timeout);
     ngx_anytls_finalize(ac);
@@ -633,7 +634,7 @@ ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac)
     if (ev->handler == NULL) {
         ev->handler = ngx_anytls_write_timeout_handler;
         ev->data = ac;
-        ev->log = ac->log;
+        ev->log = ngx_anytls_conn_log(ac);
     }
 
     if (!ev->timer_set) {
@@ -830,7 +831,7 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
     if (rc == NGX_AGAIN) {
         /* Client socket blocked - signal output pressure */
         if (!ac->output_pressure) {
-            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                            "anytls: pressure ON pend_out=%uz",
                            ac->pending_output);
             ngx_anytls_upstream_mux_suspend_reads(ac);
@@ -838,7 +839,7 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
     } else if (rc == NGX_OK) {
         /* All output drained - release pressure */
         if (ac->output_pressure) {
-            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+            ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                            "anytls: pressure OFF pend_out=%uz",
                            ac->pending_output);
             ngx_anytls_upstream_mux_resume_reads(ac);

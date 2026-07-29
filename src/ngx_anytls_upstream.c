@@ -169,7 +169,7 @@ ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac, size_t len)
         hdr = hdr->next;
     }
 
-    hdr = ngx_alloc(sizeof(ngx_anytls_pending_buf_hdr_t) + len, ac->log);
+    hdr = ngx_alloc(sizeof(ngx_anytls_pending_buf_hdr_t) + len, ngx_anytls_conn_log(ac));
     if (hdr == NULL) {
         return NULL;
     }
@@ -217,12 +217,12 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
         }
     }
 
-    cl = ngx_alloc(sizeof(ngx_chain_t), ac->log);
+    cl = ngx_alloc(sizeof(ngx_chain_t), ngx_anytls_conn_log(ac));
     if (cl == NULL) {
         return NULL;
     }
 
-    b = ngx_alloc(sizeof(ngx_buf_t), ac->log);
+    b = ngx_alloc(sizeof(ngx_buf_t), ngx_anytls_conn_log(ac));
     if (b == NULL) {
         ngx_free(cl);
         return NULL;
@@ -232,7 +232,7 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
     cl->buf = b;
     cl->next = NULL;
 
-    b->start = ngx_alloc(capacity, ac->log);
+    b->start = ngx_alloc(capacity, ngx_anytls_conn_log(ac));
     if (b->start == NULL) {
         ngx_free(b);
         ngx_free(cl);

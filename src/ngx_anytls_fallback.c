@@ -3,6 +3,7 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_fallback.h"
+#include "ngx_anytls_connection.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_private.h"
@@ -35,7 +36,7 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     ngx_memzero(&url, sizeof(url));
     url.url = target;
     if (ngx_parse_url(ac->pool, &url) != NGX_OK || url.naddrs == 0) {
-        ngx_log_error(NGX_LOG_ERR, ac->log, 0,
+        ngx_log_error(NGX_LOG_ERR, ngx_anytls_conn_log(ac), 0,
                       "anytls: invalid fallback \"%V\"", &target);
         return NGX_ERROR;
     }
@@ -45,7 +46,7 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     ac->fallback_peer.socklen = url.addrs[0].socklen;
     ac->fallback_peer.name = &url.addrs[0].name;
     ac->fallback_peer.get = ngx_event_get_peer;
-    ac->fallback_peer.log = ac->log;
+    ac->fallback_peer.log = ngx_anytls_conn_log(ac);
     ac->fallback_peer.log_error = NGX_ERROR_ERR;
 
     if (ngx_anytls_upstream_state_open(ac->session, &ac->fallback_state,
@@ -62,7 +63,7 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     ac->fallback = ac->fallback_peer.connection;
     ac->fallback->data = ac->session;
     ac->fallback->pool = ac->pool;
-    ac->fallback->log = ac->log;
+    ac->fallback->log = ngx_anytls_conn_log(ac);
 
     b = ngx_create_temp_buf(ac->pool, raw_len + 128);
     if (b == NULL) {

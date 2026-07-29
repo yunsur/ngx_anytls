@@ -22,6 +22,15 @@ static ngx_int_t ngx_anytls_handle_psh(ngx_anytls_connection_t *ac,
 static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
 static ngx_uint_t ngx_anytls_input_blocked(ngx_anytls_connection_t *ac);
 
+
+/* Accessor — prefer over direct ac->log access */
+ngx_log_t *
+ngx_anytls_conn_log(ngx_anytls_connection_t *ac)
+{
+    return ac->log;
+}
+
+
 void
 ngx_anytls_connection_init(ngx_stream_session_t *s,
     ngx_stream_anytls_srv_conf_t *conf)
