@@ -99,13 +99,6 @@ void ngx_anytls_udp_read_handler(ngx_event_t *rev);
 void ngx_anytls_udp_write_handler(ngx_event_t *wev);
 void ngx_anytls_finalize(ngx_anytls_connection_t *ac);
 
-/* Mux scheduler API */
-ngx_int_t ngx_anytls_mux_queue_frame(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
-    u_char *data, size_t len);
-void ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac);
-ngx_int_t ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st);
-
 
 
 #endif /* NGX_STREAM_ANYTLS_MODULE_H_INCLUDED */

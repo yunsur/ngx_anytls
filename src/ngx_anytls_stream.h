@@ -13,7 +13,6 @@ ngx_int_t ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_close(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_mark_ready(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st);
-ngx_int_t ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st);
 
 
 ngx_pool_t *ngx_anytls_stream_pool(ngx_anytls_stream_t *st);

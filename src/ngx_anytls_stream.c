@@ -24,38 +24,6 @@ ngx_anytls_stream_pool(ngx_anytls_stream_t *st)
 }
 
 
-ngx_int_t
-ngx_anytls_mux_mark_closing(ngx_anytls_stream_t *st)
-{
-    if (st == NULL || st->closing) {
-        return NGX_OK;
-    }
-
-    st->closing = 1;
-    ngx_queue_insert_tail(&st->ac->closing_streams, &st->closing_queue);
-
-    if (st->upstream) {
-        ngx_anytls_transport_close(st->upstream);
-        st->upstream = NULL;
-    }
-    if (st->udp) {
-        ngx_anytls_uot_close(st);
-    }
-
-    ngx_anytls_upstream_discard_pending(st);
-    ngx_anytls_upstream_state_finalize(st->ac->session, &st->upstream_state);
-
-    ngx_anytls_upstream_mux_unblock_read(st->ac, st);
-
-    ngx_anytls_upstream_mux_cancel_connect(st->ac, st);
-
-    ngx_log_debug1(NGX_LOG_DEBUG_STREAM, st->ac->log, 0,
-                   "anytls: stream %ui marked closing via mux",
-                   (ngx_uint_t) st->id);
-
-    return NGX_OK;
-}
-
 #define NGX_ANYTLS_STREAM_HT_TOMB ((void *) 1)
 
 static ngx_anytls_stream_t *

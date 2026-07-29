@@ -18,9 +18,6 @@ ngx_int_t ngx_anytls_flush(ngx_anytls_connection_t *ac, ngx_uint_t budget);
 void ngx_anytls_post_write(ngx_anytls_connection_t *ac);
 ngx_uint_t ngx_anytls_output_has_room(ngx_anytls_connection_t *ac, size_t len);
 
-ngx_int_t ngx_anytls_mux_queue_frame(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
-    u_char *data, size_t len);
 ngx_int_t ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac,
     ngx_uint_t budget, ngx_anytls_drain_result_t *result);
 void ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac);

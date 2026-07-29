@@ -762,29 +762,6 @@ ngx_anytls_output_has_room(ngx_anytls_connection_t *ac, size_t len)
 }
 
 
-ngx_int_t
-ngx_anytls_mux_queue_frame(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
-    u_char *data, size_t len)
-{
-    ngx_int_t rc;
-
-    rc = ngx_anytls_queue_frame(ac, st, cmd, stream_id, data, len);
-    if (rc != NGX_OK) {
-        return rc;
-    }
-
-    /* Update scheduling flags */
-    if (st && (cmd == NGX_ANYTLS_CMD_PSH || cmd == NGX_ANYTLS_CMD_FIN
-               || cmd == NGX_ANYTLS_CMD_SYNACK))
-    {
-        st->ready_out = 1;
-    }
-
-    return NGX_OK;
-}
-
-
 static void
 ngx_anytls_mux_drain_closing_streams(ngx_anytls_connection_t *ac)
 {
