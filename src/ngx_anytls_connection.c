@@ -691,9 +691,7 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
 
     ac->closing = 1;
     ngx_anytls_upstream_state_finalize(ac->session, &ac->fallback_state);
-    if (ac->write_timer.timer_set) {
-        ngx_del_timer(&ac->write_timer);
-    }
+    ngx_anytls_transport_disarm_timer(&ac->write_timer);
 
     for (q = ngx_queue_head(&ac->stream_list);
          q != ngx_queue_sentinel(&ac->stream_list);

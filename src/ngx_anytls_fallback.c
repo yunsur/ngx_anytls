@@ -3,6 +3,7 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_fallback.h"
+#include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_state.h"
 
 static ngx_buf_t *ngx_anytls_fallback_get_buf(ngx_anytls_connection_t *ac,
@@ -92,7 +93,7 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
     }
 
     if (!c->write->ready) {
-        if (ngx_handle_write_event(c->write, 0) != NGX_OK) {
+        if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
             ngx_anytls_finalize(ac);
         }
         return;
@@ -119,8 +120,8 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
             return;
         }
 
-        if (ngx_handle_read_event(ac->client->read, 0) != NGX_OK
-            || ngx_handle_read_event(ac->fallback->read, 0) != NGX_OK)
+        if (ngx_anytls_transport_arm_read(ac->client) != NGX_OK
+            || ngx_anytls_transport_arm_read(ac->fallback) != NGX_OK)
         {
             ngx_anytls_finalize(ac);
         }
@@ -137,7 +138,7 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
         return;
     }
 
-    if (ngx_handle_read_event(ac->fallback->read, 0) != NGX_OK) {
+    if (ngx_anytls_transport_arm_read(ac->fallback) != NGX_OK) {
         ngx_anytls_finalize(ac);
     }
 }
@@ -160,7 +161,7 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
     slot = upstream ? &ac->fallback_client_buf : &ac->fallback_upstream_buf;
 
     if (upstream && ac->fallback_replay != NULL) {
-        if (ngx_handle_write_event(to->write, 0) != NGX_OK) {
+        if (ngx_anytls_transport_arm_write(to) != NGX_OK) {
             ngx_anytls_finalize(ac);
         }
         return;
@@ -182,13 +183,13 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
 
     for ( ;; ) {
         if (b->last == b->end) {
-            if (ngx_handle_write_event(to->write, 0) != NGX_OK) {
+            if (ngx_anytls_transport_arm_write(to) != NGX_OK) {
                 ngx_anytls_finalize(ac);
             }
             return;
         }
 
-        n = from->recv(from, b->last, (size_t) (b->end - b->last));
+        n = ngx_anytls_transport_read(from, b->last, (size_t) (b->end - b->last));
         if (n == NGX_AGAIN) {
             break;
         }
@@ -209,7 +210,7 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
         }
     }
 
-    if (ngx_handle_read_event(from->read, 0) != NGX_OK) {
+    if (ngx_anytls_transport_arm_read(from) != NGX_OK) {
         ngx_anytls_finalize(ac);
     }
 }
@@ -237,9 +238,9 @@ ngx_anytls_fallback_flush_buf(ngx_anytls_connection_t *ac, ngx_connection_t *to,
     ssize_t n;
 
     while (b != NULL && b->pos < b->last) {
-        n = to->send(to, b->pos, (size_t) (b->last - b->pos));
+        n = ngx_anytls_transport_send(to, b->pos, (size_t) (b->last - b->pos));
         if (n == NGX_AGAIN) {
-            if (ngx_handle_write_event(to->write, 0) != NGX_OK) {
+            if (ngx_anytls_transport_arm_write(to) != NGX_OK) {
                 return NGX_ERROR;
             }
             return NGX_AGAIN;

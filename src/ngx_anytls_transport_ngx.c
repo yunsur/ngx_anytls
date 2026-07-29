@@ -95,6 +95,25 @@ ngx_anytls_transport_recvfrom(ngx_socket_t fd, u_char *buf, size_t size,
 }
 
 
+void
+ngx_anytls_transport_arm_timer(ngx_event_t *ev, ngx_msec_t timeout)
+{
+    if (ev->timer_set) {
+        ngx_del_timer(ev);
+    }
+    ngx_add_timer(ev, timeout);
+}
+
+
+void
+ngx_anytls_transport_disarm_timer(ngx_event_t *ev)
+{
+    if (ev->timer_set) {
+        ngx_del_timer(ev);
+    }
+}
+
+
 ngx_connection_t *
 ngx_anytls_transport_open_udp(ngx_log_t *log, ngx_uint_t family)
 {

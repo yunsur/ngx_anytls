@@ -295,10 +295,7 @@ ngx_anytls_uot_arm_idle_timer(ngx_anytls_stream_t *st)
         st->uot_timer = ev;
     }
 
-    if (st->uot_timer->timer_set) {
-        ngx_del_timer(st->uot_timer);
-    }
-    ngx_add_timer(st->uot_timer, timeout);
+    ngx_anytls_transport_arm_timer(st->uot_timer, timeout);
 }
 
 
@@ -908,7 +905,7 @@ ngx_anytls_uot_close(ngx_anytls_stream_t *st)
     ngx_anytls_uot_clear_pending(st);
 
     if (st->uot_timer && st->uot_timer->timer_set) {
-        ngx_del_timer(st->uot_timer);
+        ngx_anytls_transport_disarm_timer(st->uot_timer);
     }
 
     if (st->udp) {

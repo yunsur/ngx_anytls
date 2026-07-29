@@ -632,7 +632,7 @@ ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac)
     }
 
     if (!ev->timer_set) {
-        ngx_add_timer(ev, ac->conf->write_timeout);
+        ngx_anytls_transport_arm_timer(ev, ac->conf->write_timeout);
     }
 }
 
@@ -640,8 +640,8 @@ ngx_anytls_arm_write_timer(ngx_anytls_connection_t *ac)
 static void
 ngx_anytls_disarm_write_timer(ngx_anytls_connection_t *ac)
 {
-    if (ac && ac->write_timer.timer_set) {
-        ngx_del_timer(&ac->write_timer);
+    if (ac) {
+        ngx_anytls_transport_disarm_timer(&ac->write_timer);
     }
 }
 

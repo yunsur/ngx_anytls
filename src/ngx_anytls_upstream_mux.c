@@ -418,7 +418,7 @@ ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
                               &st->upstream_read_queue);
     }
 
-    (void) ngx_anytls_upstream_mux_drain_reads(ac, 32);
+    (void) ngx_anytls_upstream_mux_drain_reads(ac, NGX_ANYTLS_MUX_DRAIN_BUDGET);
 }
 
 
@@ -436,7 +436,7 @@ ngx_anytls_upstream_mux_on_write_ready(ngx_anytls_connection_t *ac,
                               &st->upstream_write_queue);
     }
 
-    (void) ngx_anytls_upstream_mux_drain_writes(ac, 32);
+    (void) ngx_anytls_upstream_mux_drain_writes(ac, NGX_ANYTLS_MUX_DRAIN_BUDGET);
 }
 
 

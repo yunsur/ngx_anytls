@@ -6,6 +6,8 @@
 #include <ngx_stream.h>
 #include "ngx_anytls_socksaddr.h"
 
+#define NGX_ANYTLS_MUX_DRAIN_BUDGET  32
+
 struct ngx_anytls_connection_s;
 typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
 struct ngx_anytls_stream_s;

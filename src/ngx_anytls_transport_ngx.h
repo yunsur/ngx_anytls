@@ -30,6 +30,8 @@ ssize_t ngx_anytls_transport_recvfrom(ngx_socket_t fd, u_char *buf,
     size_t size, struct sockaddr *from, socklen_t *fromlen);
 ngx_connection_t *ngx_anytls_transport_open_udp(ngx_log_t *log,
     ngx_uint_t family);
+void ngx_anytls_transport_arm_timer(ngx_event_t *ev, ngx_msec_t timeout);
+void ngx_anytls_transport_disarm_timer(ngx_event_t *ev);
 
 
 #endif
