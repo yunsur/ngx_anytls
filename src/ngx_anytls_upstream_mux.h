@@ -48,6 +48,10 @@ void ngx_anytls_upstream_mux_stream_closing(ngx_anytls_connection_t *ac,
 void ngx_anytls_upstream_mux_unblock_read(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
 ngx_uint_t ngx_anytls_upstream_mux_is_uot(ngx_anytls_stream_t *st);
+void ngx_anytls_upstream_mux_handle_client_fin(
+    ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st);
+ngx_int_t ngx_anytls_upstream_mux_handle_client_payload(
+    ngx_anytls_stream_t *st, u_char *data, size_t len);
 
 
 #endif

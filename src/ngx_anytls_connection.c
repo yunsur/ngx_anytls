@@ -439,39 +439,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
     case NGX_ANYTLS_CMD_FIN:
         st = ngx_anytls_core_stream_find(ac, frame->stream_id);
         if (st) {
-            ngx_anytls_core_stream_mark_closed(st);
-
-            if (ngx_anytls_upstream_mux_is_uot(st)) {
-                ngx_anytls_uot_close(st);
-                ngx_anytls_core_stream_close(st);
-
-            } else if (st->upstream
-                       && st->state == NGX_ANYTLS_STREAM_CONNECTED)
-            {
-                /* Flush remaining client data to upstream. If all data
-                 * drains immediately, half-close now; otherwise defer
-                 * shutdown until the write handler completes the drain.
-                 * On write error the upstream is broken — close immediately. */
-                ngx_int_t rc = ngx_anytls_upstream_send_pending(st,
-                                        NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED,
-                                        NULL);
-
-                if (rc == NGX_ERROR) {
-                    ngx_anytls_core_stream_close(st);
-
-                } else if (st->pending_in == NULL) {
-                    ngx_anytls_transport_shutdown_write(st->upstream);
-                    st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
-
-                } else {
-                    st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
-                    st->pending_shutdown = 1;
-                }
-
-            } else {
-                /* No upstream yet or still connecting — close immediately */
-                ngx_anytls_core_stream_close(st);
-            }
+            ngx_anytls_upstream_mux_handle_client_fin(ac, st);
         }
         return NGX_OK;
 
@@ -546,11 +514,8 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         return NGX_OK;
     }
 
-    if (ngx_anytls_upstream_mux_is_uot(st)) {
-        return ngx_anytls_uot_client_payload(st, frame->data, frame->data_len);
-    }
-
-    return ngx_anytls_upstream_queue(st, frame->data, frame->data_len);
+    return ngx_anytls_upstream_mux_handle_client_payload(st, frame->data,
+                                                        frame->data_len);
 }
 
 void

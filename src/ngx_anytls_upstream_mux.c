@@ -44,6 +44,55 @@ ngx_anytls_upstream_mux_is_uot(ngx_anytls_stream_t *st)
 }
 
 
+void
+ngx_anytls_upstream_mux_handle_client_fin(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    /* Mark stream as closed-by-protocol first so downstream code
+     * sees consistent state. */
+    ngx_anytls_core_stream_mark_closed(st);
+
+    if (ngx_anytls_upstream_mux_is_uot(st)) {
+        ngx_anytls_uot_close(st);
+        ngx_anytls_core_stream_close(st);
+        return;
+    }
+
+    /* TCP: flush pending data then half-close */
+    if (st->upstream && st->state == NGX_ANYTLS_STREAM_CONNECTED) {
+        ngx_int_t rc;
+
+        rc = ngx_anytls_upstream_send_pending(st,
+                                NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED, NULL);
+        if (rc == NGX_ERROR) {
+            ngx_anytls_core_stream_close(st);
+        } else if (st->pending_in == NULL) {
+            ngx_anytls_transport_shutdown_write(st->upstream);
+            st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
+        } else {
+            st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
+            st->pending_shutdown = 1;
+        }
+        return;
+    }
+
+    /* No upstream or still connecting */
+    ngx_anytls_core_stream_close(st);
+}
+
+
+ngx_int_t
+ngx_anytls_upstream_mux_handle_client_payload(ngx_anytls_stream_t *st,
+    u_char *data, size_t len)
+{
+    if (ngx_anytls_upstream_mux_is_uot(st)) {
+        return ngx_anytls_uot_client_payload(st, data, len);
+    }
+
+    return ngx_anytls_upstream_queue(st, data, len);
+}
+
+
 ngx_int_t
 ngx_anytls_upstream_mux_init(ngx_anytls_connection_t *ac)
 {
