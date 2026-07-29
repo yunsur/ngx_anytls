@@ -46,6 +46,9 @@ void ngx_anytls_upstream_mux_handle_client_fin(
     ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_upstream_mux_handle_client_payload(
     ngx_anytls_stream_t *st, u_char *data, size_t len);
+ngx_int_t ngx_anytls_upstream_mux_handle_first_psh(
+    ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
+    ngx_anytls_addr_t *addr, u_char *payload, size_t payload_len);
 
 
 #endif

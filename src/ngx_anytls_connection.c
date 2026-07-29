@@ -489,29 +489,8 @@ ngx_anytls_handle_psh(ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st,
         payload = frame->data + addr.consumed;
         payload_len = frame->data_len - addr.consumed;
 
-        if (addr.mode == NGX_ANYTLS_ADDR_TCP) {
-            if (payload_len) {
-                if (ngx_anytls_upstream_queue(st, payload, payload_len)
-                    != NGX_OK)
-                {
-                    return NGX_ERROR;
-                }
-                if (st->state == NGX_ANYTLS_STREAM_CLOSING
-                    || st->state == NGX_ANYTLS_STREAM_CLOSED)
-                {
-                    return NGX_OK;
-                }
-            }
-            return ngx_anytls_upstream_mux_open(ac, st, &addr);
-        }
-
-        if (ngx_anytls_uot_open(st, &addr) != NGX_OK) {
-            return NGX_ERROR;
-        }
-        if (payload_len) {
-            return ngx_anytls_uot_client_payload(st, payload, payload_len);
-        }
-        return NGX_OK;
+        return ngx_anytls_upstream_mux_handle_first_psh(ac, st, &addr,
+                                                        payload, payload_len);
     }
 
     return ngx_anytls_upstream_mux_handle_client_payload(st, frame->data,

@@ -591,12 +591,6 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
             return;
         }
         ngx_anytls_upstream_mux_on_connect_ready(st->ac, st);
-        st->state = NGX_ANYTLS_STREAM_CONNECTED;
-        (void) ngx_anytls_client_mux_send_synack(st, NULL, 0);
-        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
-            ngx_anytls_core_stream_close(st);
-            return;
-        }
     }
 
     ngx_anytls_upstream_mux_on_write_ready(st->ac, st);

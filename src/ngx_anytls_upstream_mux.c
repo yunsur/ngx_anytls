@@ -94,6 +94,41 @@ ngx_anytls_upstream_mux_handle_client_payload(ngx_anytls_stream_t *st,
 
 
 ngx_int_t
+ngx_anytls_upstream_mux_handle_first_psh(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr,
+    u_char *payload, size_t payload_len)
+{
+    /* Handle the first PSH (SYN) from client — encapsulates address
+     * resolution and initial payload.  Routes to TCP connect or UoT
+     * open based on the parsed address mode. */
+    if (addr->mode == NGX_ANYTLS_ADDR_TCP) {
+        if (payload_len) {
+            if (ngx_anytls_upstream_queue(st, payload, payload_len)
+                != NGX_OK)
+            {
+                return NGX_ERROR;
+            }
+            if (st->state == NGX_ANYTLS_STREAM_CLOSING
+                || st->state == NGX_ANYTLS_STREAM_CLOSED)
+            {
+                return NGX_OK;
+            }
+        }
+        return ngx_anytls_upstream_mux_open(ac, st, addr);
+    }
+
+    /* UoT */
+    if (ngx_anytls_uot_open(st, addr) != NGX_OK) {
+        return NGX_ERROR;
+    }
+    if (payload_len) {
+        return ngx_anytls_uot_client_payload(st, payload, payload_len);
+    }
+    return NGX_OK;
+}
+
+
+ngx_int_t
 ngx_anytls_upstream_mux_init(ngx_anytls_connection_t *ac)
 {
     ngx_queue_init(&ac->upstream_mux.read_ready);
@@ -557,6 +592,16 @@ ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
     ngx_anytls_upstream_mux_cancel_connect(ac, st);
+
+    /* Complete the connect: advance state, notify client, start reading */
+    st->state = NGX_ANYTLS_STREAM_CONNECTED;
+    (void) ngx_anytls_client_mux_send_synack(st, NULL, 0);
+
+    if (ngx_anytls_transport_arm_read(
+            ngx_anytls_upstream_mux_read_conn(st)) != NGX_OK)
+    {
+        ngx_anytls_core_stream_close(st);
+    }
 }
 
 
