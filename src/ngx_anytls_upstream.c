@@ -361,9 +361,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
         return ngx_anytls_upstream_send_pending(st);
     }
 
-    st->connect_pending = 1;
-    ngx_queue_insert_tail(&st->ac->upstream_mux.connect_pending,
-                          &st->connect_queue);
+    ngx_anytls_upstream_mux_on_connect_pending(st->ac, st);
 
     if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
         return NGX_ERROR;

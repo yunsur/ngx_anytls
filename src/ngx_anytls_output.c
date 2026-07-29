@@ -592,58 +592,7 @@ ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac)
 void
 ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac)
 {
-    ngx_queue_t *q, *next;
-    ngx_anytls_stream_t *st;
-    size_t size;
-    ngx_connection_t *c;
-
-    for (q = ngx_queue_head(&ac->blocked_upstream_reads);
-         q != ngx_queue_sentinel(&ac->blocked_upstream_reads);
-         q = next)
-    {
-        next = ngx_queue_next(q);
-        st = ngx_queue_data(q, ngx_anytls_stream_t, upstream_block);
-
-        c = (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT)
-                ? st->udp : st->upstream;
-
-        if (c == NULL
-            || st->state != NGX_ANYTLS_STREAM_CONNECTED)
-        {
-            ngx_queue_remove(&st->upstream_block);
-            ngx_queue_init(&st->upstream_block);
-            st->upstream_read_blocked = 0;
-            st->blocked_by_upstream = 0;
-            continue;
-        }
-
-        if (ac->output_pressure) {
-            return;
-        }
-
-        size = ngx_min(st->ac->conf->buffer_size,
-                       (size_t) NGX_ANYTLS_MAX_FRAME_DATA);
-        if (!ngx_anytls_output_has_room(ac, size)) {
-            return;
-        }
-
-        ngx_queue_remove(&st->upstream_block);
-        ngx_queue_init(&st->upstream_block);
-        st->upstream_read_blocked = 0;
-        st->blocked_by_upstream = 0;
-
-        ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
-                       "anytls: upstream resume st=%ui pend_out=%uz "
-                       "blocked_qlen=%ui",
-                       (ngx_uint_t) st->id, st->pending_out,
-                       ngx_queue_size(&ac->blocked_upstream_reads));
-
-        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
-            ngx_anytls_core_stream_close(st);
-            return;
-        }
-        ac->resumed_streams++;
-    }
+    ngx_anytls_upstream_mux_resume_upstream_reads(ac);
 }
 
 

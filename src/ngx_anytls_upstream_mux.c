@@ -343,12 +343,21 @@ ngx_anytls_upstream_mux_suspend_reads(ngx_anytls_connection_t *ac)
 
 
 void
+ngx_anytls_upstream_mux_resume_upstream_reads(ngx_anytls_connection_t *ac)
+{
+    /* Resume blocked reads without touching output_pressure.
+     * Used by flush() during normal drain; pressure management
+     * is handled separately by mux_drain_client. */
+    ac->resumed_streams += ngx_anytls_upstream_mux_process_blocked(ac);
+}
+
+void
 ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac)
 {
     ac->output_pressure = 0;
 
-    /* Actually re-arm blocked upstream reads */
-    ngx_anytls_client_mux_resume_upstream_reads(ac);
+    /* Release pressure and resume blocked upstream reads */
+    ac->resumed_streams += ngx_anytls_upstream_mux_process_blocked(ac);
 }
 
 
@@ -384,11 +393,7 @@ void
 ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    if (st->connect_pending) {
-        st->connect_pending = 0;
-        ngx_queue_remove(&st->connect_queue);
-        ngx_queue_init(&st->connect_queue);
-    }
+    ngx_anytls_upstream_mux_cancel_connect(ac, st);
 }
 
 
@@ -469,4 +474,122 @@ ngx_anytls_upstream_mux_on_timeout(ngx_anytls_connection_t *ac,
                   (ngx_uint_t) st->id);
 
     ngx_anytls_upstream_mux_close_stream(ac, st, 1);
+}
+
+
+void
+ngx_anytls_upstream_mux_on_connect_pending(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->connect_pending) {
+        return;
+    }
+    st->connect_pending = 1;
+    ngx_queue_insert_tail(&ac->upstream_mux.connect_pending,
+                          &st->connect_queue);
+}
+
+void
+ngx_anytls_upstream_mux_cancel_connect(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->connect_pending) {
+        st->connect_pending = 0;
+        ngx_queue_remove(&st->connect_queue);
+        ngx_queue_init(&st->connect_queue);
+    }
+}
+
+static ngx_uint_t
+ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
+{
+    ngx_queue_t *q, *next;
+    ngx_anytls_stream_t *st;
+    ngx_connection_t *c;
+    size_t size;
+    ngx_uint_t resumed;
+
+    resumed = 0;
+
+    for (q = ngx_queue_head(&ac->blocked_upstream_reads);
+         q != ngx_queue_sentinel(&ac->blocked_upstream_reads);
+         q = next)
+    {
+        next = ngx_queue_next(q);
+        st = ngx_queue_data(q, ngx_anytls_stream_t, upstream_block);
+
+        c = (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT)
+                ? st->udp : st->upstream;
+
+        if (c == NULL
+            || st->state != NGX_ANYTLS_STREAM_CONNECTED)
+        {
+            ngx_anytls_upstream_mux_unblock_read(ac, st);
+            continue;
+        }
+
+        if (ac->output_pressure) {
+            return resumed;
+        }
+
+        size = ngx_min(ac->conf->buffer_size,
+                       (size_t) NGX_ANYTLS_MAX_FRAME_DATA);
+        if (!ngx_anytls_client_mux_has_room(ac, size)) {
+            return resumed;
+        }
+
+        ngx_anytls_upstream_mux_unblock_read(ac, st);
+
+        ngx_log_debug3(NGX_LOG_DEBUG_STREAM, ac->log, 0,
+                       "anytls: upstream resume st=%ui pend_out=%uz "
+                       "blocked_qlen=%ui",
+                       (ngx_uint_t) st->id, st->pending_out,
+                       ngx_queue_size(&ac->blocked_upstream_reads));
+
+        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
+            ngx_anytls_core_stream_close(st);
+            return resumed;
+        }
+        resumed++;
+    }
+
+    return resumed;
+}
+
+
+ngx_int_t
+ngx_anytls_upstream_mux_on_read_blocked(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_event_t *rev)
+{
+    return ngx_anytls_upstream_block_read(st, rev);
+}
+
+void
+ngx_anytls_upstream_mux_unblock_read(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->upstream_read_blocked) {
+        ngx_queue_remove(&st->upstream_block);
+        ngx_queue_init(&st->upstream_block);
+        st->upstream_read_blocked = 0;
+        st->blocked_by_upstream = 0;
+    }
+}
+
+void
+ngx_anytls_upstream_mux_stream_closing(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st)
+{
+    if (st->upstream_read_ready) {
+        ngx_queue_remove(&st->upstream_read_queue);
+        ngx_queue_init(&st->upstream_read_queue);
+        st->upstream_read_ready = 0;
+    }
+    if (st->upstream_write_ready) {
+        ngx_queue_remove(&st->upstream_write_queue);
+        ngx_queue_init(&st->upstream_write_queue);
+        st->upstream_write_ready = 0;
+    }
+    ngx_anytls_upstream_mux_unblock_read(ac, st);
+    ngx_anytls_upstream_mux_cancel_connect(ac, st);
 }

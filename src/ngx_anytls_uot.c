@@ -876,14 +876,7 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
     /* Packet mode: keep existing recvfrom path, check backpressure */
     if (st->ac->output_pressure) {
         if (!st->upstream_read_blocked) {
-            st->upstream_read_blocked = 1;
-            st->blocked_by_upstream = 1;
-            rev->ready = 0;
-            ngx_queue_insert_tail(&st->ac->blocked_upstream_reads,
-                                  &st->upstream_block);
-            if (rev->active) {
-                (void) ngx_anytls_transport_disarm_read(c);
-            }
+            ngx_anytls_upstream_mux_on_read_blocked(st->ac, st, rev);
         }
         return;
     }

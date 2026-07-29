@@ -34,6 +34,15 @@ void ngx_anytls_upstream_mux_close_stream(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t reason);
 void ngx_anytls_upstream_mux_on_timeout(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
+void ngx_anytls_upstream_mux_on_connect_pending(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st);
+void ngx_anytls_upstream_mux_cancel_connect(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st);
+void ngx_anytls_upstream_mux_resume_upstream_reads(ngx_anytls_connection_t *ac);
+ngx_int_t ngx_anytls_upstream_mux_on_read_blocked(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_event_t *rev);
+void ngx_anytls_upstream_mux_stream_closing(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st);
 
 
 #endif
