@@ -354,9 +354,9 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     st->state = NGX_ANYTLS_STREAM_CONNECTING;
 
     if (rc == NGX_OK) {
-        st->state = NGX_ANYTLS_STREAM_CONNECTED;
-        (void) ngx_anytls_client_mux_send_synack(st, NULL, 0);
-        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
+        if (ngx_anytls_upstream_mux_on_connect_ready(st->ac, st)
+            != NGX_OK)
+        {
             return NGX_ERROR;
         }
         return ngx_anytls_upstream_send_pending(st,
@@ -590,7 +590,11 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
             ngx_anytls_core_stream_close(st);
             return;
         }
-        ngx_anytls_upstream_mux_on_connect_ready(st->ac, st);
+        if (ngx_anytls_upstream_mux_on_connect_ready(st->ac, st)
+            != NGX_OK)
+        {
+            return;
+        }
     }
 
     ngx_anytls_upstream_mux_on_write_ready(st->ac, st);
@@ -608,10 +612,5 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
     ngx_anytls_upstream_mux_on_read_ready(st->ac, st);
 
     /* Re-arm read event if stream still active */
-    if (st->upstream && !st->upstream_read_blocked
-        && !st->closing
-        && st->state != NGX_ANYTLS_STREAM_CLOSED)
-    {
-        (void) ngx_anytls_transport_arm_read(st->upstream);
-    }
+    ngx_anytls_upstream_mux_arm_read_if_needed(st);
 }

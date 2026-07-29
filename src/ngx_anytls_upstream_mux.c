@@ -242,10 +242,39 @@ ngx_anytls_upstream_mux_write_conn(ngx_anytls_stream_t *st)
 
 
 /* Query: is upstream read currently blocked by output pressure? */
-static ngx_inline ngx_uint_t
+ngx_uint_t
 ngx_anytls_upstream_mux_read_blocked(ngx_anytls_stream_t *st)
 {
     return st->upstream_read_blocked ? 1 : 0;
+}
+
+
+ngx_uint_t
+ngx_anytls_upstream_mux_should_arm_read(ngx_anytls_stream_t *st)
+{
+    ngx_connection_t *c;
+
+    c = ngx_anytls_upstream_mux_read_conn(st);
+    if (c == NULL) {
+        return 0;
+    }
+    if (ngx_anytls_upstream_mux_read_blocked(st)) {
+        return 0;
+    }
+    if (st->closing || st->state == NGX_ANYTLS_STREAM_CLOSED) {
+        return 0;
+    }
+    return 1;
+}
+
+
+void
+ngx_anytls_upstream_mux_arm_read_if_needed(ngx_anytls_stream_t *st)
+{
+    if (ngx_anytls_upstream_mux_should_arm_read(st)) {
+        (void) ngx_anytls_transport_arm_read(
+                ngx_anytls_upstream_mux_read_conn(st));
+    }
 }
 
 
@@ -571,7 +600,7 @@ ngx_anytls_upstream_mux_resume_upstream_reads(ngx_anytls_connection_t *ac)
 {
     /* Resume blocked reads without touching output_pressure.
      * Used by flush() during normal drain; pressure management
-     * is handled separately by mux_drain_client. */
+     * is handled separately by output_drain_client. */
     ac->resumed_streams += ngx_anytls_upstream_mux_process_blocked(ac);
 }
 
@@ -607,7 +636,7 @@ ngx_anytls_upstream_mux_open_resolved(ngx_anytls_stream_t *st)
 }
 
 
-void
+ngx_int_t
 ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
@@ -621,7 +650,10 @@ ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
             ngx_anytls_upstream_mux_read_conn(st)) != NGX_OK)
     {
         ngx_anytls_core_stream_close(st);
+        return NGX_ERROR;
     }
+
+    return NGX_OK;
 }
 
 

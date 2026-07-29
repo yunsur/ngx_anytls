@@ -24,7 +24,7 @@ ngx_int_t ngx_anytls_upstream_mux_open(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr);
 ngx_int_t ngx_anytls_upstream_mux_open_resolved(
     ngx_anytls_stream_t *st);
-void ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
+ngx_int_t ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
 void ngx_anytls_upstream_mux_on_read_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
@@ -42,6 +42,12 @@ void ngx_anytls_upstream_mux_stream_closing(ngx_anytls_connection_t *ac,
 void ngx_anytls_upstream_mux_unblock_read(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st);
 ngx_uint_t ngx_anytls_upstream_mux_is_uot(ngx_anytls_stream_t *st);
+ngx_uint_t ngx_anytls_upstream_mux_should_arm_read(
+    ngx_anytls_stream_t *st);
+void ngx_anytls_upstream_mux_arm_read_if_needed(
+    ngx_anytls_stream_t *st);
+ngx_uint_t ngx_anytls_upstream_mux_read_blocked(
+    ngx_anytls_stream_t *st);
 void ngx_anytls_upstream_mux_handle_client_fin(
     ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_upstream_mux_handle_client_payload(

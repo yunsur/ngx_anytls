@@ -57,7 +57,7 @@ ngx_int_t
 ngx_anytls_client_mux_drain(ngx_anytls_connection_t *ac, ngx_uint_t budget,
     ngx_anytls_drain_result_t *result)
 {
-    return ngx_anytls_mux_drain_client(ac, budget, result);
+    return ngx_anytls_output_drain_client(ac, budget, result);
 }
 
 
@@ -78,7 +78,7 @@ ngx_anytls_client_mux_has_room(ngx_anytls_connection_t *ac, size_t len)
 void
 ngx_anytls_client_mux_on_writable(ngx_anytls_connection_t *ac)
 {
-    ngx_anytls_mux_on_client_writable(ac);
+    ngx_anytls_output_on_writable(ac);
 }
 
 

@@ -786,7 +786,7 @@ ngx_anytls_mux_drain_closing_streams(ngx_anytls_connection_t *ac)
 
 
 ngx_int_t
-ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
+ngx_anytls_output_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
     ngx_anytls_drain_result_t *result)
 {
     ngx_int_t rc;
@@ -867,11 +867,11 @@ ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac, ngx_uint_t budget,
 
 
 void
-ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac)
+ngx_anytls_output_on_writable(ngx_anytls_connection_t *ac)
 {
     if (ac->output_pressure) {
         ngx_anytls_upstream_mux_resume_reads(ac);
     }
 
-    (void) ngx_anytls_mux_drain_client(ac, 0, NULL);
+    (void) ngx_anytls_output_drain_client(ac, 0, NULL);
 }

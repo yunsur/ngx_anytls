@@ -22,8 +22,8 @@ ngx_int_t ngx_anytls_send_synack(ngx_anytls_stream_t *st, u_char *data,
 void ngx_anytls_post_write(ngx_anytls_connection_t *ac);
 ngx_uint_t ngx_anytls_output_has_room(ngx_anytls_connection_t *ac, size_t len);
 
-ngx_int_t ngx_anytls_mux_drain_client(ngx_anytls_connection_t *ac,
+ngx_int_t ngx_anytls_output_drain_client(ngx_anytls_connection_t *ac,
     ngx_uint_t budget, ngx_anytls_drain_result_t *result);
-void ngx_anytls_mux_on_client_writable(ngx_anytls_connection_t *ac);
+void ngx_anytls_output_on_writable(ngx_anytls_connection_t *ac);
 void ngx_anytls_resume_upstream_reads(ngx_anytls_connection_t *ac);
 #endif
