@@ -3,7 +3,6 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_connection.h"
-#include "ngx_anytls_output.h"
 #include "ngx_anytls_core.h"
 #include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_stream.h"
@@ -403,7 +402,7 @@ ngx_anytls_handle_frame(ngx_anytls_connection_t *ac, ngx_anytls_frame_t *frame)
             (void) ngx_anytls_client_mux_queue_ref_frame(ac, NULL, NGX_ANYTLS_CMD_ALERT, 0,
                                               (u_char *) "client did not send its settings",
                                               sizeof("client did not send its settings") - 1);
-            (void) ngx_anytls_flush(ac, 0);
+            (void) ngx_anytls_client_mux_drain(ac, 0, NULL);
             return NGX_ERROR;
         }
         if (frame->stream_id == 0) {

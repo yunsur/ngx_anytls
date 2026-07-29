@@ -5,7 +5,6 @@
 #include <arpa/inet.h>
 
 #include "ngx_anytls_uot.h"
-#include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"

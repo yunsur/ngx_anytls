@@ -8,7 +8,6 @@
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_connection.h"
-#include "ngx_anytls_output.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream_state.h"

@@ -5,7 +5,6 @@
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_core.h"
 #include "ngx_anytls_client_mux.h"
-#include "ngx_anytls_output.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_uot.h"
