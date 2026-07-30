@@ -403,6 +403,9 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
         }
 
         if (len == 0) {
+            if (ngx_anytls_transport_disarm_write(c) != NGX_OK) {
+                return NGX_ERROR;
+            }
             return NGX_OK;
         }
 
@@ -571,6 +574,11 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st,
     if (sent_out) {
         *sent_out = total;
     }
+
+    if (ngx_anytls_transport_disarm_write(c) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
     return ngx_anytls_client_input_resume(st->ac);
 }
 

@@ -735,13 +735,16 @@ ngx_anytls_flush(ngx_anytls_connection_t *ac, ngx_uint_t budget)
         ngx_anytls_client_mux_resume_upstream_reads(ac);
     }
 
-    if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
     if (ac->unsent != NULL) {
+        if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
+            return NGX_ERROR;
+        }
         ngx_anytls_arm_write_timer(ac);
         return NGX_AGAIN;
+    }
+
+    if (ngx_anytls_transport_disarm_write(c) != NGX_OK) {
+        return NGX_ERROR;
     }
 
     ngx_anytls_mux_drain_closing_streams(ac);
