@@ -3,7 +3,7 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_upstream_state.h"
-#include "ngx_anytls_private.h"
+#include "ngx_anytls_connection_private.h"
 
 static ngx_stream_upstream_state_t *
 ngx_anytls_upstream_state_get(ngx_stream_session_t *s,

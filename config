@@ -7,15 +7,16 @@ _NGX_ADDON_SRCS=" \
     $ngx_addon_dir/src/ngx_anytls_padding.c \
     $ngx_addon_dir/src/ngx_anytls_stream.c \
     $ngx_addon_dir/src/ngx_anytls_upstream_state.c \
-    $ngx_addon_dir/src/ngx_anytls_output.c \
+    $ngx_addon_dir/src/ngx_anytls_auth.c \
+    $ngx_addon_dir/src/ngx_anytls_client_handler.c \
     $ngx_addon_dir/src/ngx_anytls_resolver.c \
     $ngx_addon_dir/src/ngx_anytls_connection.c \
     $ngx_addon_dir/src/ngx_anytls_upstream.c \
     $ngx_addon_dir/src/ngx_anytls_upstream_mux.c \
     $ngx_addon_dir/src/ngx_anytls_fallback.c \
     $ngx_addon_dir/src/ngx_anytls_uot.c \
-    $ngx_addon_dir/src/ngx_anytls_core.c \
     $ngx_addon_dir/src/ngx_anytls_client_mux.c \
+    $ngx_addon_dir/src/ngx_anytls_session_core.c \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.c \
 "
 
@@ -26,16 +27,17 @@ _NGX_ADDON_DEPS=" \
     $ngx_addon_dir/src/ngx_anytls_padding.h \
     $ngx_addon_dir/src/ngx_anytls_stream.h \
     $ngx_addon_dir/src/ngx_anytls_upstream_state.h \
-    $ngx_addon_dir/src/ngx_anytls_output.h \
+    $ngx_addon_dir/src/ngx_anytls_auth.h \
+    $ngx_addon_dir/src/ngx_anytls_client_handler.h \
     $ngx_addon_dir/src/ngx_anytls_resolver.h \
     $ngx_addon_dir/src/ngx_anytls_connection.h \
     $ngx_addon_dir/src/ngx_anytls_upstream.h \
     $ngx_addon_dir/src/ngx_anytls_upstream_mux.h \
     $ngx_addon_dir/src/ngx_anytls_fallback.h \
     $ngx_addon_dir/src/ngx_anytls_uot.h \
-    $ngx_addon_dir/src/ngx_anytls_core.h \
     $ngx_addon_dir/src/ngx_anytls_client_mux.h \
-    $ngx_addon_dir/src/ngx_anytls_private.h \
+    $ngx_addon_dir/src/ngx_anytls_session_core.h \
+    $ngx_addon_dir/src/ngx_anytls_connection_private.h \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.h \
 "
 

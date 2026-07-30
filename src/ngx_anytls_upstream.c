@@ -3,7 +3,7 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_upstream.h"
-#include "ngx_anytls_core.h"
+#include "ngx_anytls_client_handler.h"
 #include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_transport_ngx.h"
@@ -11,7 +11,7 @@
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream_state.h"
-#include "ngx_anytls_private.h"
+#include "ngx_anytls_connection_private.h"
 
 static void *ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac,
     size_t len);
@@ -54,7 +54,7 @@ ngx_anytls_upstream_block_input(ngx_anytls_stream_t *st)
                        st->ac->conf->max_pending_input);
     }
 
-    return ngx_anytls_pause_input(st->ac);
+    return ngx_anytls_client_input_pause(st->ac);
 }
 
 
@@ -83,7 +83,7 @@ ngx_anytls_upstream_update_input_state(ngx_anytls_stream_t *st)
                    "lowat:%uz", (ngx_uint_t) st->id, st->pending_in_bytes,
                    lowat);
 
-    return ngx_anytls_resume_input(st->ac);
+    return ngx_anytls_client_input_resume(st->ac);
 }
 
 
@@ -118,7 +118,7 @@ ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
         }
     }
 
-    (void) ngx_anytls_resume_input(st->ac);
+    (void) ngx_anytls_client_input_resume(st->ac);
 }
 
 
@@ -450,7 +450,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
     }
 
     if (st->ac->pending_input > st->ac->conf->max_pending_input) {
-        if (ngx_anytls_pause_input(st->ac) != NGX_OK) {
+        if (ngx_anytls_client_input_pause(st->ac) != NGX_OK) {
             return NGX_ERROR;
         }
     }
@@ -571,7 +571,7 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st,
     if (sent_out) {
         *sent_out = total;
     }
-    return ngx_anytls_resume_input(st->ac);
+    return ngx_anytls_client_input_resume(st->ac);
 }
 
 void
@@ -587,7 +587,7 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
         if (ngx_anytls_test_connect(c) != NGX_OK) {
             (void) ngx_anytls_client_mux_send_synack(st, (u_char *) "connect failed",
                                           sizeof("connect failed") - 1);
-            ngx_anytls_core_stream_close(st);
+            ngx_anytls_stream_close(st);
             return;
         }
         if (ngx_anytls_upstream_mux_on_connect_ready(st->ac, st)

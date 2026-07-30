@@ -10,7 +10,7 @@
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_transport_ngx.h"
-#include "ngx_anytls_private.h"
+#include "ngx_anytls_connection_private.h"
 
 
 ngx_pool_t *

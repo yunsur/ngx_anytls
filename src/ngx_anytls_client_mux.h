@@ -47,4 +47,8 @@ ngx_int_t ngx_anytls_client_mux_queue_error(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, u_char *data, size_t len);
 void ngx_anytls_client_mux_mark_ready(ngx_anytls_stream_t *st);
 
+/* Returns 1 if client output can accept at least payload_len bytes */
+ngx_uint_t ngx_anytls_client_mux_can_accept_output(
+    ngx_anytls_connection_t *ac, size_t payload_len);
+
 #endif

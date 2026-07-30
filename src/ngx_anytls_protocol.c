@@ -1,7 +1,10 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <openssl/sha.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #include <openssl/md5.h>
+#pragma GCC diagnostic pop
 
 #include "ngx_anytls_protocol.h"
 
@@ -31,7 +34,10 @@ ngx_anytls_md5_hex(u_char *data, size_t len, u_char out[33])
     static u_char hex[] = "0123456789abcdef";
     ngx_uint_t i;
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     MD5(data, len, md5);
+#pragma GCC diagnostic pop
 
     for (i = 0; i < 16; i++) {
         out[i * 2] = hex[md5[i] >> 4];

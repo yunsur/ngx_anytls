@@ -4,14 +4,13 @@
 
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_upstream.h"
-#include "ngx_anytls_core.h"
 #include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_uot.h"
-#include "ngx_anytls_private.h"
+#include "ngx_anytls_connection_private.h"
 
 
 /* Per-cycle scheduling budget (internal to upstream mux).
@@ -70,11 +69,11 @@ ngx_anytls_upstream_mux_handle_client_fin(ngx_anytls_connection_t *ac,
 {
     /* Mark stream as closed-by-protocol first so downstream code
      * sees consistent state. */
-    ngx_anytls_core_stream_mark_closed(st);
+    ngx_anytls_stream_mark_closed_by_protocol(st);
 
     if (ngx_anytls_upstream_mux_is_uot(st)) {
         ngx_anytls_uot_close(st);
-        ngx_anytls_core_stream_close(st);
+        ngx_anytls_stream_close(st);
         return;
     }
 
@@ -85,7 +84,7 @@ ngx_anytls_upstream_mux_handle_client_fin(ngx_anytls_connection_t *ac,
         rc = ngx_anytls_upstream_send_pending(st,
                                 NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED, NULL);
         if (rc == NGX_ERROR) {
-            ngx_anytls_core_stream_close(st);
+            ngx_anytls_stream_close(st);
         } else if (st->pending_in == NULL) {
             ngx_anytls_transport_shutdown_write(st->upstream);
             st->state = NGX_ANYTLS_STREAM_HALF_CLOSED;
@@ -97,7 +96,7 @@ ngx_anytls_upstream_mux_handle_client_fin(ngx_anytls_connection_t *ac,
     }
 
     /* No upstream or still connecting */
-    ngx_anytls_core_stream_close(st);
+    ngx_anytls_stream_close(st);
 }
 
 
@@ -373,7 +372,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                                (ngx_uint_t) st->id, ac->output_pressure,
                                ac->pending_output);
                 if (ngx_anytls_upstream_block_read(st, c->read) != NGX_OK) {
-                    ngx_anytls_core_stream_close(st);
+                    ngx_anytls_stream_close(st);
                 }
                 goto next_stream;
             }
@@ -405,7 +404,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
 
             cl = ngx_anytls_upstream_get_read_buf(ac, size);
             if (cl == NULL) {
-                ngx_anytls_core_stream_close(st);
+                ngx_anytls_stream_close(st);
                 goto next_stream;
             }
             b = cl->buf;
@@ -419,7 +418,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                  * Guard size <= 2 to avoid unsigned underflow. */
                 if (size <= 2) {
                     ngx_anytls_upstream_free_read_buf(ac, cl);
-                    ngx_anytls_core_stream_close(st);
+                    ngx_anytls_stream_close(st);
                     goto next_stream;
                 }
                 n = ngx_anytls_transport_read(c, b->last + 2, size - 2);
@@ -429,7 +428,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                 }
                 if (n == NGX_ERROR) {
                     ngx_anytls_upstream_free_read_buf(ac, cl);
-                    ngx_anytls_core_stream_close(st);
+                    ngx_anytls_stream_close(st);
                     goto next_stream;
                 }
                 if (n == 0) {
@@ -454,12 +453,12 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                     ngx_anytls_transport_close(c);
                     st->upstream = NULL;
 
-                    (void) ngx_anytls_core_stream_send_fin(st);
+                    (void) ngx_anytls_stream_send_fin_and_close(st);
                     goto next_stream;
                 }
                 if (n == NGX_ERROR) {
                     ngx_anytls_upstream_free_read_buf(ac, cl);
-                    ngx_anytls_core_stream_close(st);
+                    ngx_anytls_stream_close(st);
                     goto next_stream;
                 }
 
@@ -471,13 +470,13 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
             if (rc == NGX_AGAIN) {
                 ngx_anytls_upstream_free_read_buf(ac, cl);
                 if (ngx_anytls_upstream_block_read(st, c->read) != NGX_OK) {
-                    ngx_anytls_core_stream_close(st);
+                    ngx_anytls_stream_close(st);
                 }
                 goto next_stream;
             }
             if (rc != NGX_OK) {
                 ngx_anytls_upstream_free_read_buf(ac, cl);
-                ngx_anytls_core_stream_close(st);
+                ngx_anytls_stream_close(st);
                 goto next_stream;
             }
 
@@ -526,7 +525,7 @@ ngx_anytls_upstream_mux_drain_writes(ngx_anytls_connection_t *ac,
                 &sent)
             == NGX_ERROR)
         {
-            ngx_anytls_core_stream_close(st);
+            ngx_anytls_stream_close(st);
             continue;
         }
 
@@ -649,7 +648,7 @@ ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
     if (ngx_anytls_transport_arm_read(
             ngx_anytls_upstream_mux_read_conn(st)) != NGX_OK)
     {
-        ngx_anytls_core_stream_close(st);
+        ngx_anytls_stream_close(st);
         return NGX_ERROR;
     }
 
@@ -803,7 +802,7 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
                        ngx_queue_size(&ac->blocked_upstream_reads));
 
         if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
-            ngx_anytls_core_stream_close(st);
+            ngx_anytls_stream_close(st);
             return resumed;
         }
         resumed++;

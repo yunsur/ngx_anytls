@@ -6,7 +6,7 @@
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_state.h"
-#include "ngx_anytls_private.h"
+#include "ngx_anytls_connection_private.h"
 
 static ngx_buf_t *ngx_anytls_fallback_get_buf(ngx_anytls_connection_t *ac,
     ngx_buf_t **slot);
