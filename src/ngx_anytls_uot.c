@@ -861,16 +861,14 @@ ngx_anytls_udp_read_handler(ngx_event_t *rev)
     ngx_anytls_uot_arm_idle_timer(st);
 
     if (st->uot_mode == NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
-        /* Connected UDP: route through upstream mux read_ready */
         ngx_anytls_upstream_mux_on_read_ready(st->ac, st);
-        ngx_anytls_upstream_mux_arm_read_if_needed(st);
         return;
     }
 
-    /* Packet mode: keep existing recvfrom path, check backpressure */
+    /* Packet mode: check backpressure via stream status */
     if (!ngx_anytls_client_mux_can_accept_output(st->ac, 0)) {
-        if (!ngx_anytls_upstream_mux_read_blocked(st)) {
-            ngx_anytls_upstream_mux_on_read_blocked(st->ac, st, rev);
+        if (!ngx_anytls_upstream_mux_stream_status(st).read_blocked) {
+            ngx_anytls_upstream_mux_block_read(st->ac, st, rev);
         }
         return;
     }

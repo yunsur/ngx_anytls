@@ -144,3 +144,10 @@ ngx_anytls_transport_open_udp(ngx_log_t *log, ngx_uint_t family)
     c->recv = ngx_udp_recv;
     return c;
 }
+
+
+ngx_int_t
+ngx_anytls_transport_connect(ngx_peer_connection_t *pc)
+{
+    return ngx_event_connect_peer(pc);
+}

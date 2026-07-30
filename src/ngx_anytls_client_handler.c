@@ -78,7 +78,8 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             return NGX_ERROR;
         }
 
-        rc = ngx_anytls_session_core_handle_frame(ac, &frame, &session_result);
+        rc = ngx_anytls_session_core_handle_frame(&ac->session_core,
+            ac->pool, ac->log, &frame, &session_result);
 
         /* Execute actions returned by session core (always, even on error) */
         {
@@ -86,42 +87,76 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
 
             for (i = 0; i < session_result.action_count && !done; i++) {
                 ngx_int_t act_rc = NGX_OK;
+                ngx_anytls_action_t *a = &session_result.actions[i];
+                ngx_anytls_stream_t *st;
 
-                switch (session_result.actions[i].type) {
+                switch (a->type) {
                 case NGX_ANYTLS_ACTION_QUEUE_CONTROL:
                     act_rc = ngx_anytls_client_mux_queue_ref_frame(ac, NULL,
-                        session_result.actions[i].cmd,
-                        session_result.actions[i].stream_id,
-                        session_result.actions[i].data,
-                        session_result.actions[i].len);
+                        a->cmd, a->stream_id, a->data, a->len);
                     break;
 
-                case NGX_ANYTLS_ACTION_OPEN_UPSTREAM:
-                    act_rc = ngx_anytls_upstream_mux_handle_first_psh(ac,
-                        session_result.actions[i].stream,
-                        &session_result.actions[i].addr,
-                        session_result.actions[i].data,
-                        session_result.actions[i].len);
+                case NGX_ANYTLS_ACTION_OPEN_STREAM:
+                    /* SYN: core validated settings_received and stream_id;
+                     * dispatcher checks duplicate and creates stream. */
+                    if (ngx_anytls_stream_resolve(ac, a->stream_id,
+                            NGX_ANYTLS_STREAM_OP_EXISTS))
+                    {
+                        break;  /* duplicate SYN, ignore */
+                    }
+                    st = ngx_anytls_stream_resolve(ac, a->stream_id,
+                            NGX_ANYTLS_STREAM_OP_CREATE);
+                    if (st == NULL) {
+                        act_rc = NGX_ERROR;
+                    }
                     break;
+
 
                 case NGX_ANYTLS_ACTION_FORWARD_CLIENT_PAYLOAD:
-                    act_rc = ngx_anytls_upstream_mux_handle_client_payload(
-                        session_result.actions[i].stream,
-                        session_result.actions[i].data,
-                        session_result.actions[i].len);
+                    /* Core marks every PSH as FORWARD_CLIENT_PAYLOAD.
+                     * Dispatcher resolves stream and handles first-PSH. */
+                    st = ngx_anytls_stream_resolve(ac, a->stream_id,
+                            NGX_ANYTLS_STREAM_OP_FIND);
+                    if (st == NULL) { break; }
+                    if (!ngx_anytls_stream_can_accept_payload(st)) {
+                        break;
+                    }
+                    if (ngx_anytls_stream_is_first_psh(st)) {
+                        ngx_pool_t *spool = ngx_anytls_stream_pool(st);
+                        u_char *payload;
+                        size_t payload_len;
+                        if (spool == NULL) { act_rc = NGX_ERROR; break; }
+                        act_rc = ngx_anytls_session_core_parse_first_psh(
+                            spool, a->data, a->len,
+                            &a->addr, &payload, &payload_len);
+                        if (act_rc != NGX_OK) { break; }
+                        ngx_anytls_stream_set_first_psh(st, &a->addr);
+                        act_rc = ngx_anytls_upstream_mux_handle_first_psh(ac,
+                            st, &a->addr, payload, payload_len);
+                    } else {
+                        act_rc = ngx_anytls_upstream_mux_handle_client_payload(
+                            st, a->data, a->len);
+                    }
                     break;
 
                 case NGX_ANYTLS_ACTION_CLIENT_FIN:
-                    ngx_anytls_upstream_mux_handle_client_fin(ac,
-                        session_result.actions[i].stream);
+                    st = ngx_anytls_stream_resolve(ac, a->stream_id,
+                            NGX_ANYTLS_STREAM_OP_FIND);
+                    if (st) {
+                        ngx_anytls_upstream_mux_handle_client_fin(ac, st);
+                    }
+                    break;
+
+                case NGX_ANYTLS_ACTION_CLIENT_ALERT:
+                    (void) ngx_anytls_client_mux_drain(ac, 0, NULL);
+                    ngx_anytls_finalize(ac);
+                    done = 1;
                     break;
 
                 case NGX_ANYTLS_ACTION_PROTOCOL_ERROR:
-                    if (session_result.actions[i].len) {
-                        (void) ngx_anytls_client_mux_queue_error(ac,
-                            session_result.actions[i].stream,
-                            session_result.actions[i].data,
-                            session_result.actions[i].len);
+                    if (a->len) {
+                        (void) ngx_anytls_client_mux_queue_error(ac, NULL,
+                            a->data, a->len);
                     }
                     (void) ngx_anytls_client_mux_drain(ac, 0, NULL);
                     ngx_anytls_finalize(ac);

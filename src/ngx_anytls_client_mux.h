@@ -14,12 +14,7 @@ struct ngx_anytls_stream_s;
 typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
 
 
-typedef struct {
-    size_t       pending_delta;
-    ngx_uint_t   streams_resumed;
-    unsigned     pressure_on:1;
-    unsigned     can_finalize:1;
-} ngx_anytls_drain_result_t;
+#include "ngx_anytls_mux_events.h"
 
 
 /* Frame queuing — unified entry points for client output */

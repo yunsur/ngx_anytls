@@ -24,6 +24,42 @@ ngx_anytls_stream_pool(ngx_anytls_stream_t *st)
 }
 
 
+ngx_uint_t
+ngx_anytls_stream_is_first_psh(ngx_anytls_stream_t *st)
+{
+    return st->first_psh_seen ? 0 : 1;
+}
+
+
+void
+ngx_anytls_stream_set_first_psh(ngx_anytls_stream_t *st,
+    const ngx_anytls_addr_t *addr)
+{
+    st->first_psh_seen = 1;
+    ngx_anytls_addr_copy(&st->target, (ngx_anytls_addr_t *) addr);
+}
+
+
+ngx_uint_t
+ngx_anytls_stream_can_accept_payload(ngx_anytls_stream_t *st)
+{
+    if (st->in_closed
+        || st->state == NGX_ANYTLS_STREAM_CLOSING
+        || st->state == NGX_ANYTLS_STREAM_CLOSED)
+    {
+        return 0;
+    }
+    return 1;
+}
+
+
+ngx_uint_t
+ngx_anytls_stream_is_closed_by_protocol(ngx_anytls_stream_t *st)
+{
+    return st->closed_by_protocol;
+}
+
+
 #define NGX_ANYTLS_STREAM_HT_TOMB ((void *) 1)
 
 static ngx_anytls_stream_t *
@@ -151,6 +187,24 @@ ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
 }
 
 
+ngx_anytls_stream_t *
+ngx_anytls_stream_resolve(ngx_anytls_connection_t *ac, uint32_t id,
+    ngx_anytls_stream_op_e op)
+{
+    switch (op) {
+    case NGX_ANYTLS_STREAM_OP_CREATE:
+        return ngx_anytls_stream_create(ac, id);
+    case NGX_ANYTLS_STREAM_OP_FIND:
+        return ngx_anytls_stream_find(ac, id);
+    case NGX_ANYTLS_STREAM_OP_EXISTS:
+        return (ngx_anytls_stream_t *) (uintptr_t)
+            ngx_anytls_stream_exists(ac, id);
+    default:
+        return NULL;
+    }
+}
+
+
 void
 ngx_anytls_stream_mark_closed_by_protocol(ngx_anytls_stream_t *st)
 {
@@ -249,7 +303,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
         ngx_anytls_upstream_discard_pending(st);
         ngx_anytls_upstream_state_finalize(ac->session, &st->upstream_state);
-        ngx_anytls_upstream_mux_unblock_read(ac, st);
+        if (st->upstream_read_blocked) {
+            ngx_queue_remove(&st->upstream_block);
+            ngx_queue_init(&st->upstream_block);
+            st->upstream_read_blocked = 0;
+            st->blocked_by_upstream = 0;
+        }
         ngx_anytls_upstream_mux_cancel_connect(ac, st);
         return;
     }

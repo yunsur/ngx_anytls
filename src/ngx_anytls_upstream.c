@@ -610,7 +610,4 @@ ngx_anytls_upstream_read_handler(ngx_event_t *rev)
     st = c->data;
 
     ngx_anytls_upstream_mux_on_read_ready(st->ac, st);
-
-    /* Re-arm read event if stream still active */
-    ngx_anytls_upstream_mux_arm_read_if_needed(st);
 }

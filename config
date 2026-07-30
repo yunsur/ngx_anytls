@@ -38,6 +38,12 @@ _NGX_ADDON_DEPS=" \
     $ngx_addon_dir/src/ngx_anytls_client_mux.h \
     $ngx_addon_dir/src/ngx_anytls_session_core.h \
     $ngx_addon_dir/src/ngx_anytls_connection_private.h \
+    $ngx_addon_dir/src/ngx_anytls_stream_private.h \
+    $ngx_addon_dir/src/ngx_anytls_client_mux_private.h \
+    $ngx_addon_dir/src/ngx_anytls_upstream_mux_private.h \
+    $ngx_addon_dir/src/ngx_anytls_uot_private.h \
+    $ngx_addon_dir/src/ngx_anytls_mux_events.h \
+    $ngx_addon_dir/src/ngx_anytls_fallback_private.h \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.h \
 "
 

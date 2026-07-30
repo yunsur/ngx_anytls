@@ -9,6 +9,7 @@
 #include "ngx_anytls_transport_ngx.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_upstream_state.h"
+#include "ngx_anytls_session_core.h"
 #include "ngx_anytls_connection_private.h"
 
 
@@ -41,7 +42,8 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ac->log = c->log;
     ac->conf = conf;
     ac->state = NGX_ANYTLS_CONN_AUTH;
-    ac->peer_version = 1;
+    ngx_anytls_session_core_init(&ac->session_core, conf->padding_md5,
+                                  conf->padding_data, conf->padding_data_len);
     read_size = ngx_min(conf->buffer_size,
                         NGX_ANYTLS_FRAME_HEADER_LEN
                         + NGX_ANYTLS_MAX_FRAME_DATA);

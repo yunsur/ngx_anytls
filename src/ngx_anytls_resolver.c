@@ -3,11 +3,9 @@
 #include <ngx_stream.h>
 
 #include "ngx_anytls_resolver.h"
-#include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
-#include "ngx_anytls_uot.h"
 #include "ngx_anytls_connection_private.h"
 
 static void ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve);
@@ -156,7 +154,7 @@ static void
 ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
 {
     ngx_anytls_stream_t          *st;
-    ngx_anytls_resolve_target_e  target;
+    ngx_anytls_upstream_event_t   event;
 
     st = resolve->data;
     if (st == NULL || st->resolver_ctx != resolve) {
@@ -166,7 +164,10 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
 
     st->resolver_ctx = NULL;
     st->resolver_pending = 0;
-    target = st->resolver_target;
+
+    ngx_memzero(&event, sizeof(event));
+    event.st = st;
+    event.stream_id = st->id;
 
     if (resolve->state || resolve->naddrs == 0 || resolve->addrs == NULL
         || ngx_anytls_resolver_copy_addr(st, resolve) != NGX_OK)
@@ -184,58 +185,14 @@ ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve)
                           (ngx_uint_t) st->resolver_port);
         }
 
-        if (target == NGX_ANYTLS_RESOLVE_TCP) {
-            ngx_resolve_name_done(resolve);
-            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-            st->resolver_domain_len = 0;
-            st->resolver_port = 0;
-            (void) ngx_anytls_client_mux_send_synack(st, (u_char *) "resolve failed",
-                                          sizeof("resolve failed") - 1);
-        } else if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
-            ngx_resolve_name_done(resolve);
-            ngx_anytls_uot_packet_resolve_failed(st);
-            return;
-        } else {
-            ngx_resolve_name_done(resolve);
-            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-            st->resolver_domain_len = 0;
-            st->resolver_port = 0;
-        }
-
-        ngx_anytls_stream_close(st);
+        ngx_resolve_name_done(resolve);
+        event.type = NGX_ANYTLS_UPSTREAM_EVENT_RESOLVE_ERROR;
+        event.status = NGX_ERROR;
+        ngx_anytls_upstream_mux_event(st->ac, &event);
         return;
     }
 
     ngx_resolve_name_done(resolve);
-
-    if (target == NGX_ANYTLS_RESOLVE_TCP) {
-        st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-        st->resolver_domain_len = 0;
-        st->resolver_port = 0;
-        if (ngx_anytls_upstream_mux_open_resolved(st) != NGX_OK) {
-            ngx_anytls_stream_close(st);
-        }
-        return;
-    }
-
-    if (target == NGX_ANYTLS_RESOLVE_UOT_CONNECT) {
-        st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-        st->resolver_domain_len = 0;
-        st->resolver_port = 0;
-        if (ngx_anytls_uot_resolved(st) != NGX_OK) {
-            ngx_anytls_stream_close(st);
-        }
-        return;
-    }
-
-    if (target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
-        if (ngx_anytls_uot_packet_resolved(st) != NGX_OK) {
-            ngx_anytls_stream_close(st);
-        }
-        return;
-    }
-
-    st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
-    st->resolver_domain_len = 0;
-    st->resolver_port = 0;
+    event.type = NGX_ANYTLS_UPSTREAM_EVENT_RESOLVE_OK;
+    ngx_anytls_upstream_mux_event(st->ac, &event);
 }

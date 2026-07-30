@@ -34,4 +34,6 @@ void ngx_anytls_transport_arm_timer(ngx_event_t *ev, ngx_msec_t timeout);
 void ngx_anytls_transport_disarm_timer(ngx_event_t *ev);
 
 
+
+ngx_int_t ngx_anytls_transport_connect(ngx_peer_connection_t *pc);
 #endif

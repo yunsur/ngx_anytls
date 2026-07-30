@@ -29,6 +29,8 @@ typedef struct {
 
 static ngx_uint_t ngx_anytls_upstream_mux_process_blocked(
     ngx_anytls_connection_t *ac);
+static void ngx_anytls_upstream_mux_unblock_read(
+    ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st);
 
 
 /* Return the number of elements in a ngx_queue_t.
@@ -56,7 +58,7 @@ static ngx_int_t ngx_anytls_upstream_mux_drain_writes(
     ngx_anytls_connection_t *ac, ngx_anytls_schedule_budget_t *sched);
 
 
-ngx_uint_t
+static ngx_uint_t
 ngx_anytls_upstream_mux_is_uot(ngx_anytls_stream_t *st)
 {
     return (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) ? 1 : 0;
@@ -241,39 +243,10 @@ ngx_anytls_upstream_mux_write_conn(ngx_anytls_stream_t *st)
 
 
 /* Query: is upstream read currently blocked by output pressure? */
-ngx_uint_t
+static ngx_uint_t
 ngx_anytls_upstream_mux_read_blocked(ngx_anytls_stream_t *st)
 {
     return st->upstream_read_blocked ? 1 : 0;
-}
-
-
-ngx_uint_t
-ngx_anytls_upstream_mux_should_arm_read(ngx_anytls_stream_t *st)
-{
-    ngx_connection_t *c;
-
-    c = ngx_anytls_upstream_mux_read_conn(st);
-    if (c == NULL) {
-        return 0;
-    }
-    if (ngx_anytls_upstream_mux_read_blocked(st)) {
-        return 0;
-    }
-    if (st->closing || st->state == NGX_ANYTLS_STREAM_CLOSED) {
-        return 0;
-    }
-    return 1;
-}
-
-
-void
-ngx_anytls_upstream_mux_arm_read_if_needed(ngx_anytls_stream_t *st)
-{
-    if (ngx_anytls_upstream_mux_should_arm_read(st)) {
-        (void) ngx_anytls_transport_arm_read(
-                ngx_anytls_upstream_mux_read_conn(st));
-    }
 }
 
 
@@ -594,16 +567,7 @@ ngx_anytls_upstream_mux_suspend_reads(ngx_anytls_connection_t *ac)
 }
 
 
-void
-ngx_anytls_upstream_mux_resume_upstream_reads(ngx_anytls_connection_t *ac)
-{
-    /* Resume blocked reads without touching output_pressure.
-     * Used by flush() during normal drain; pressure management
-     * is handled separately by output_drain_client. */
-    ac->resumed_streams += ngx_anytls_upstream_mux_process_blocked(ac);
-}
-
-void
+static void
 ngx_anytls_upstream_mux_resume_reads(ngx_anytls_connection_t *ac)
 {
     ac->output_pressure = 0;
@@ -812,14 +776,8 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
 }
 
 
-ngx_int_t
-ngx_anytls_upstream_mux_on_read_blocked(ngx_anytls_connection_t *ac,
-    ngx_anytls_stream_t *st, ngx_event_t *rev)
-{
-    return ngx_anytls_upstream_block_read(st, rev);
-}
 
-void
+static void
 ngx_anytls_upstream_mux_unblock_read(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
@@ -847,4 +805,108 @@ ngx_anytls_upstream_mux_stream_closing(ngx_anytls_connection_t *ac,
     }
     ngx_anytls_upstream_mux_unblock_read(ac, st);
     ngx_anytls_upstream_mux_cancel_connect(ac, st);
+}
+
+
+
+ngx_anytls_upstream_mux_status_t
+ngx_anytls_upstream_mux_stream_status(ngx_anytls_stream_t *st)
+{
+    ngx_anytls_upstream_mux_status_t s;
+
+    ngx_memzero(&s, sizeof(s));
+    s.is_packet_mode = (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT) ? 1 : 0;
+    s.read_blocked = st->upstream_read_blocked ? 1 : 0;
+    s.can_accept = (st->in_closed
+                    || st->state == NGX_ANYTLS_STREAM_CLOSING
+                    || st->state == NGX_ANYTLS_STREAM_CLOSED) ? 0 : 1;
+    s.is_closing = (st->closing
+                    || st->state == NGX_ANYTLS_STREAM_CLOSING
+                    || st->state == NGX_ANYTLS_STREAM_CLOSED) ? 1 : 0;
+
+    return s;
+}
+
+
+void
+ngx_anytls_upstream_mux_on_client_mux_result(
+    ngx_anytls_connection_t *ac,
+    const ngx_anytls_drain_result_t *result)
+{
+    if (result && result->pressure_released) {
+        ngx_anytls_upstream_mux_resume_reads(ac);
+    }
+
+    /* Always attempt to resume blocked reads after a drain cycle */
+    ac->resumed_streams += ngx_anytls_upstream_mux_process_blocked(ac);
+}
+
+
+void
+ngx_anytls_upstream_mux_event(ngx_anytls_connection_t *ac,
+    ngx_anytls_upstream_event_t *event)
+{
+    ngx_anytls_stream_t *st = event->st;
+
+    if (st == NULL) {
+        return;
+    }
+
+    switch (event->type) {
+    case NGX_ANYTLS_UPSTREAM_EVENT_RESOLVE_OK:
+        if (st->resolver_target == NGX_ANYTLS_RESOLVE_TCP) {
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
+            if (ngx_anytls_upstream_mux_open_resolved(st) != NGX_OK) {
+                ngx_anytls_stream_close(st);
+            }
+        } else if (st->resolver_target == NGX_ANYTLS_RESOLVE_UOT_CONNECT) {
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
+            if (ngx_anytls_uot_resolved(st) != NGX_OK) {
+                ngx_anytls_stream_close(st);
+            }
+        } else if (st->resolver_target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
+            if (ngx_anytls_uot_packet_resolved(st) != NGX_OK) {
+                ngx_anytls_stream_close(st);
+            }
+        } else {
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
+        }
+        break;
+
+    case NGX_ANYTLS_UPSTREAM_EVENT_RESOLVE_ERROR:
+        if (st->resolver_target == NGX_ANYTLS_RESOLVE_TCP) {
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
+            (void) ngx_anytls_client_mux_send_synack(st,
+                (u_char *) "resolve failed",
+                sizeof("resolve failed") - 1);
+        } else if (st->resolver_target == NGX_ANYTLS_RESOLVE_UOT_PACKET) {
+            ngx_anytls_uot_packet_resolve_failed(st);
+            return;
+        } else {
+            st->resolver_target = NGX_ANYTLS_RESOLVE_NONE;
+            st->resolver_domain_len = 0;
+            st->resolver_port = 0;
+        }
+        ngx_anytls_stream_close(st);
+        break;
+
+    default:
+        break;
+    }
+}
+
+
+ngx_int_t
+ngx_anytls_upstream_mux_block_read(ngx_anytls_connection_t *ac,
+    ngx_anytls_stream_t *st, ngx_event_t *rev)
+{
+    return ngx_anytls_upstream_block_read(st, rev);
 }

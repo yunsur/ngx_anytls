@@ -431,7 +431,7 @@ ngx_anytls_client_mux_send_synack(ngx_anytls_stream_t *st, u_char *data, size_t 
 
     st->synack_sent = 1;
 
-    if (st->ac->peer_version < 2) {
+    if (st->ac->session_core.peer_version < 2) {
         return NGX_OK;
     }
 
@@ -597,7 +597,11 @@ ngx_anytls_recycle_sent_frames(ngx_anytls_connection_t *ac)
 void
 ngx_anytls_client_mux_resume_upstream_reads(ngx_anytls_connection_t *ac)
 {
-    ngx_anytls_upstream_mux_resume_upstream_reads(ac);
+    /* Delegate to upstream mux backpressure handler.
+     * Called after a drain cycle to resume blocked reads. */
+    ngx_anytls_drain_result_t dummy;
+    ngx_memzero(&dummy, sizeof(dummy));
+    ngx_anytls_upstream_mux_on_client_mux_result(ac, &dummy);
 }
 
 
@@ -790,6 +794,9 @@ ngx_anytls_client_mux_drain(ngx_anytls_connection_t *ac, ngx_uint_t budget,
 {
     ngx_int_t rc;
     size_t prev_pending;
+    ngx_uint_t pressure_was_on;
+
+    pressure_was_on = ac->output_pressure;
 
     if (budget == 0) {
         budget = NGX_ANYTLS_CLIENT_DRAIN_FRAMES;
@@ -805,20 +812,19 @@ ngx_anytls_client_mux_drain(ngx_anytls_connection_t *ac, ngx_uint_t budget,
 
     /* Manage output pressure */
     if (rc == NGX_AGAIN) {
-        /* Client socket blocked - signal output pressure */
         if (!ac->output_pressure) {
             ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                            "anytls: pressure ON pend_out=%uz",
                            ac->pending_output);
+            ac->output_pressure = 1;
             ngx_anytls_upstream_mux_suspend_reads(ac);
         }
     } else if (rc == NGX_OK) {
-        /* All output drained - release pressure */
         if (ac->output_pressure) {
             ngx_log_debug1(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                            "anytls: pressure OFF pend_out=%uz",
                            ac->pending_output);
-            ngx_anytls_upstream_mux_resume_reads(ac);
+            ac->output_pressure = 0;
         }
     }
 
@@ -840,7 +846,6 @@ ngx_anytls_client_mux_drain(ngx_anytls_connection_t *ac, ngx_uint_t budget,
                         && ac->frames == 0) ? 1 : 0;
 
         if (can_finalize) {
-            /* Double-check per-stream state: no resolver or UoT pending */
             for (q = ngx_queue_head(&ac->stream_list);
                  q != ngx_queue_sentinel(&ac->stream_list);
                  q = ngx_queue_next(q))
@@ -858,7 +863,10 @@ ngx_anytls_client_mux_drain(ngx_anytls_connection_t *ac, ngx_uint_t budget,
         result->pending_delta = drained;
         result->streams_resumed = ac->resumed_streams;
         result->pressure_on = ac->output_pressure ? 1 : 0;
+        result->pressure_released = (pressure_was_on && !ac->output_pressure) ? 1 : 0;
         result->can_finalize = can_finalize;
+
+        ngx_anytls_upstream_mux_on_client_mux_result(ac, result);
     }
 
     return rc;
@@ -868,13 +876,11 @@ ngx_anytls_client_mux_drain(ngx_anytls_connection_t *ac, ngx_uint_t budget,
 void
 ngx_anytls_client_mux_on_writable(ngx_anytls_connection_t *ac)
 {
-    if (ac->output_pressure) {
-        ngx_anytls_upstream_mux_resume_reads(ac);
-    }
+    ngx_anytls_drain_result_t result;
 
-    (void) ngx_anytls_client_mux_drain(ac, 0, NULL);
+    ngx_memzero(&result, sizeof(result));
+    (void) ngx_anytls_client_mux_drain(ac, 0, &result);
 }
-
 ngx_uint_t
 ngx_anytls_client_mux_can_accept_output(ngx_anytls_connection_t *ac,
     size_t payload_len)
@@ -902,7 +908,7 @@ ngx_anytls_client_mux_mark_ready(ngx_anytls_stream_t *st)
         return;
     }
 
-    if (ngx_anytls_upstream_mux_is_uot(st)) {
+    if (ngx_anytls_upstream_mux_stream_status(st).is_packet_mode) {
         ngx_queue_insert_head(&st->ac->ready_streams, &st->ready_queue);
     } else {
         ngx_queue_insert_tail(&st->ac->ready_streams, &st->ready_queue);

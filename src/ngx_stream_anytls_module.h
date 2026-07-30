@@ -43,13 +43,6 @@ extern ngx_module_t ngx_stream_anytls_module;
 
 #define NGX_ANYTLS_MAX_DIRECT_FRAMES 4
 
-typedef enum {
-    NGX_ANYTLS_CONN_AUTH = 0,
-    NGX_ANYTLS_CONN_SETTINGS,
-    NGX_ANYTLS_CONN_READY,
-    NGX_ANYTLS_CONN_FALLBACK,
-    NGX_ANYTLS_CONN_CLOSING
-} ngx_anytls_conn_state_e;
 
 typedef enum {
     NGX_ANYTLS_STREAM_INIT = 0,
