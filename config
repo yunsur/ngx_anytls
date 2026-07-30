@@ -16,6 +16,7 @@ _NGX_ADDON_SRCS=" \
     $ngx_addon_dir/src/ngx_anytls_fallback.c \
     $ngx_addon_dir/src/ngx_anytls_uot.c \
     $ngx_addon_dir/src/ngx_anytls_client_mux.c \
+    $ngx_addon_dir/src/ngx_anytls_session_actions.c \
     $ngx_addon_dir/src/ngx_anytls_session_core.c \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.c \
 "
@@ -36,6 +37,7 @@ _NGX_ADDON_DEPS=" \
     $ngx_addon_dir/src/ngx_anytls_fallback.h \
     $ngx_addon_dir/src/ngx_anytls_uot.h \
     $ngx_addon_dir/src/ngx_anytls_client_mux.h \
+    $ngx_addon_dir/src/ngx_anytls_session_actions.h \
     $ngx_addon_dir/src/ngx_anytls_session_core.h \
     $ngx_addon_dir/src/ngx_anytls_connection_private.h \
     $ngx_addon_dir/src/ngx_anytls_stream_private.h \
