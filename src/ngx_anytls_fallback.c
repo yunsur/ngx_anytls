@@ -102,6 +102,8 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
     }
 
     if (c == ac->fallback) {
+        ngx_anytls_upstream_state_on_connect(ac->session, &ac->fallback_state);
+
         rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_replay, 1);
         if (rc == NGX_ERROR) {
             ngx_anytls_finalize(ac);
@@ -201,6 +203,11 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
         }
 
         b->last += n;
+
+        if (!upstream) {
+            ngx_anytls_upstream_state_on_first_byte(ac->session,
+                                                    &ac->fallback_state);
+        }
 
         rc = ngx_anytls_fallback_flush_buf(ac, to, b, upstream);
         if (rc == NGX_ERROR) {

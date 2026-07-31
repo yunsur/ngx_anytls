@@ -453,6 +453,8 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                 goto next_stream;
             }
 
+            ngx_anytls_upstream_state_on_first_byte(ac->session,
+                                                     &st->upstream_state);
             ngx_anytls_upstream_state_add_bytes_received(ac->session,
                                                          &st->upstream_state, n);
             st->last_activity = ngx_current_msec;
@@ -604,6 +606,7 @@ ngx_anytls_upstream_mux_on_connect_ready(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
     ngx_anytls_upstream_mux_cancel_connect(ac, st);
+    ngx_anytls_upstream_state_on_connect(ac->session, &st->upstream_state);
 
     /* Complete the connect: advance state, notify client, start reading */
     st->state = NGX_ANYTLS_STREAM_CONNECTED;

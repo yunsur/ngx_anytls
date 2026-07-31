@@ -99,6 +99,40 @@ ngx_anytls_upstream_state_open(ngx_stream_session_t *s,
 
 
 void
+ngx_anytls_upstream_state_on_connect(ngx_stream_session_t *s,
+    ngx_anytls_upstream_state_tracker_t *tracker)
+{
+    ngx_stream_upstream_state_t *state;
+
+    state = ngx_anytls_upstream_state_get(s, tracker);
+    if (state == NULL || tracker->finalized) {
+        return;
+    }
+
+    if (state->connect_time == (ngx_msec_t) -1) {
+        state->connect_time = ngx_current_msec - tracker->start_time;
+    }
+}
+
+
+void
+ngx_anytls_upstream_state_on_first_byte(ngx_stream_session_t *s,
+    ngx_anytls_upstream_state_tracker_t *tracker)
+{
+    ngx_stream_upstream_state_t *state;
+
+    state = ngx_anytls_upstream_state_get(s, tracker);
+    if (state == NULL || tracker->finalized) {
+        return;
+    }
+
+    if (state->first_byte_time == (ngx_msec_t) -1) {
+        state->first_byte_time = ngx_current_msec - tracker->start_time;
+    }
+}
+
+
+void
 ngx_anytls_upstream_state_add_bytes_sent(ngx_stream_session_t *s,
     ngx_anytls_upstream_state_tracker_t *tracker, off_t bytes)
 {

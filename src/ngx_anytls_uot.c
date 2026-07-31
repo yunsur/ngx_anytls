@@ -342,6 +342,7 @@ ngx_anytls_uot_upstream_state_open(ngx_anytls_stream_t *st,
     ngx_anytls_addr_t *addr)
 {
     u_char *p;
+    ngx_int_t rc;
 
     if (st->uot_mode != NGX_ANYTLS_ADDR_UOT_V2_CONNECT) {
         return NGX_OK;
@@ -368,8 +369,13 @@ ngx_anytls_uot_upstream_state_open(ngx_anytls_stream_t *st,
         st->upstream_name.len = p - st->upstream_name.data;
     }
 
-    return ngx_anytls_upstream_state_open(st->ac->session, &st->upstream_state,
-                                          &st->upstream_name);
+    rc = ngx_anytls_upstream_state_open(st->ac->session, &st->upstream_state,
+                                        &st->upstream_name);
+    if (rc == NGX_OK) {
+        ngx_anytls_upstream_state_on_connect(st->ac->session,
+                                             &st->upstream_state);
+    }
+    return rc;
 }
 
 
