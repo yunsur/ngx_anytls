@@ -43,7 +43,7 @@ ngx_anytls_session_core_handle_frame(ngx_anytls_session_core_t *core,
 {
     ngx_anytls_action_t *action;
     ngx_anytls_settings_t settings;
-    ngx_str_t server_settings = ngx_string("v=2\n");
+    ngx_str_t server_settings = ngx_string("v=2");
 
     ngx_memzero(result, sizeof(*result));
 
