@@ -9,7 +9,6 @@ AnyTLS v2 inbound server for nginx stream. Implements the server side of the Any
 - **Stream multiplexing** — multiple TCP/UDP streams multiplexed over a single TLS connection
 - **UoT (UDP over TCP)** — UDP packet encapsulation over AnyTLS streams with configurable pending queue
 - **Configurable padding** — built-in default padding scheme or custom padding file
-- **DNS cache** — worker-local cache for domain targets; async resolver when nginx `resolver` is configured, synchronous system resolution fallback otherwise
 - **Self-contained** — all protocol logic in module source; no external library dependency beyond OpenSSL
 
 ## Directives
@@ -182,10 +181,6 @@ stream {
     }
 }
 ```
-
-## DNS Cache Notes
-
-AnyTLS TCP and UoT domain targets share a worker-local DNS cache. Cache entries expire based on their TTL. Cache misses use the nginx async `resolver` when configured; without one, the module falls back to synchronous system resolution (getaddrinfo).
 
 ## Testing
 
