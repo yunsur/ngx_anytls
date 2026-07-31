@@ -7,6 +7,27 @@
 #include "ngx_anytls_connection_private.h"
 
 
+/*
+ * Constant-time comparison for the client auth hash.
+ *
+ * The hash is the first thing a client sends on a public TLS port; a
+ * data-dependent compare would leak password-hash information through
+ * timing, so never use ngx_memcmp() here.
+ */
+static ngx_int_t
+ngx_anytls_auth_hash_eq(const u_char *a, const u_char *b, size_t len)
+{
+    volatile u_char diff = 0;
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        diff |= a[i] ^ b[i];
+    }
+
+    return diff == 0 ? NGX_OK : NGX_ERROR;
+}
+
+
 ngx_anytls_auth_step_t
 ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
 {
@@ -29,7 +50,9 @@ ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
         }
     }
 
-    if (ngx_memcmp(ac->auth, ac->conf->password_hash, 32) != 0) {
+    if (ngx_anytls_auth_hash_eq(ac->auth, ac->conf->password_hash, 32)
+        != NGX_OK)
+    {
         if (len > 0) {
             n = ngx_min(len, sizeof(ac->auth) - ac->auth_len);
             ngx_memcpy(ac->auth + ac->auth_len, data, n);
