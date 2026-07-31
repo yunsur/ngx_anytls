@@ -66,12 +66,16 @@ ngx_anytls_parse_frame(u_char *pos, u_char *last, ngx_anytls_frame_t *frame,
         return NGX_AGAIN;
     }
 
+    if (frame->cmd > NGX_ANYTLS_CMD_SERVER_SETTINGS) {
+        /* Unknown command: tolerate and skip its payload (anytls-c
+         * semantics); dispatch ignores it for forward compatibility. */
+        frame->data = NULL;
+        *consumed = NGX_ANYTLS_FRAME_HEADER_LEN + frame->data_len;
+        return NGX_OK;
+    }
+
     frame->data = frame->data_len ? pos + NGX_ANYTLS_FRAME_HEADER_LEN : NULL;
     *consumed = NGX_ANYTLS_FRAME_HEADER_LEN + frame->data_len;
-
-    if (frame->cmd > NGX_ANYTLS_CMD_SERVER_SETTINGS) {
-        return NGX_ERROR;
-    }
 
     return NGX_OK;
 }
