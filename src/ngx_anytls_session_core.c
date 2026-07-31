@@ -62,16 +62,6 @@ ngx_anytls_session_core_handle_frame(ngx_anytls_session_core_t *core,
         core->peer_version = settings.version;
         core->state = NGX_ANYTLS_CONN_READY;
 
-        if (core->peer_version >= 2) {
-            action = ngx_anytls_session_add_action(result);
-            if (action == NULL) { return NGX_ERROR; }
-            action->type = NGX_ANYTLS_ACTION_QUEUE_CONTROL;
-            action->cmd = NGX_ANYTLS_CMD_SERVER_SETTINGS;
-            action->stream_id = 0;
-            action->data = server_settings.data;
-            action->len = server_settings.len;
-        }
-
         if (settings.padding_md5.len != 32
             || ngx_strncmp(settings.padding_md5.data, core->padding_md5, 32)
                != 0)
@@ -83,6 +73,16 @@ ngx_anytls_session_core_handle_frame(ngx_anytls_session_core_t *core,
             action->stream_id = 0;
             action->data = core->padding_data;
             action->len = core->padding_data_len;
+        }
+
+        if (core->peer_version >= 2) {
+            action = ngx_anytls_session_add_action(result);
+            if (action == NULL) { return NGX_ERROR; }
+            action->type = NGX_ANYTLS_ACTION_QUEUE_CONTROL;
+            action->cmd = NGX_ANYTLS_CMD_SERVER_SETTINGS;
+            action->stream_id = 0;
+            action->data = server_settings.data;
+            action->len = server_settings.len;
         }
         return NGX_OK;
 
