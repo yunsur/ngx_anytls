@@ -32,6 +32,7 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_DEFAULT_WRITE_TIMEOUT 60000
 #define NGX_ANYTLS_DEFAULT_FALLBACK_CONNECT_TIMEOUT 60000
 #define NGX_ANYTLS_DEFAULT_UPSTREAM_CONNECT_TIMEOUT 5000
+#define NGX_ANYTLS_DEFAULT_HANDSHAKE_TIMEOUT 60000
 #define NGX_ANYTLS_DEFAULT_PADDING                                           \
     "stop=8\n"                                                              \
     "0=30-30\n"                                                            \

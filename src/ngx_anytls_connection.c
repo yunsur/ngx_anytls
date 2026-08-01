@@ -94,6 +94,12 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     c->read->handler = ngx_anytls_client_read_handler;
     c->write->handler = ngx_anytls_client_write_handler;
 
+    /* Close connections that never complete the AnyTLS handshake
+     * (aligns with nginx stream idle behaviour; default 60s). */
+    if (conf->handshake_timeout) {
+        ngx_add_timer(c->read, conf->handshake_timeout);
+    }
+
     ngx_anytls_client_read_handler(c->read);
 }
 

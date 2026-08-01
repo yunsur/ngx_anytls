@@ -76,6 +76,14 @@ When `on`, prepends a PROXY protocol v1 header on fallback connections before re
 
 Maximum time an AnyTLS stream may spend connecting to its upstream target before the stream is closed. Default matches the protocol's 5s client-side default. Set higher for high-latency paths, lower for fast failover.
 
+### `anytls_handshake_timeout`
+
+- **Syntax:** `anytls_handshake_timeout <time>;`
+- **Default:** `60s`
+- **Context:** `stream`, `server`
+
+Maximum time a connection may take to complete the AnyTLS authentication handshake before being closed. Aligns with nginx stream's idle behaviour — a client that opens a TLS connection and sends nothing is disconnected instead of leaving the session open forever. Set to `0` to disable.
+
 ### `anytls_buffer_size`
 
 - **Syntax:** `anytls_buffer_size <size>;`

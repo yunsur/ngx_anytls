@@ -43,6 +43,12 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
         if (auth_result.result == NGX_ANYTLS_AUTH_MORE) {
             return NGX_OK;
         }
+
+        /* auth phase over: drop the handshake timer */
+        if (ac->client->read->timer_set) {
+            ngx_del_timer(ac->client->read);
+        }
+
         if (auth_result.result == NGX_ANYTLS_AUTH_FALLBACK) {
             if (ac->conf->fallback == NULL) {
                 ngx_anytls_send_http_400(ac);
@@ -271,6 +277,13 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
 
     ac = ngx_stream_get_module_ctx(s, ngx_stream_anytls_module);
     if (ac == NULL) {
+        return;
+    }
+
+    if (c->read->timedout && ac->state == NGX_ANYTLS_CONN_AUTH) {
+        ngx_log_error(NGX_LOG_INFO, c->log, 0,
+                      "anytls: handshake timed out, closing connection");
+        ngx_anytls_finalize(ac);
         return;
     }
 

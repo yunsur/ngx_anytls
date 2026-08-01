@@ -41,6 +41,7 @@ typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_flag_t               fallback_proxy_protocol_set;
     ngx_msec_t               fallback_connect_timeout;
     ngx_msec_t               upstream_connect_timeout;
+    ngx_msec_t               handshake_timeout;
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
     size_t                   max_pending_output;
