@@ -35,6 +35,7 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
 
     ngx_memzero(&url, sizeof(url));
     url.url = target;
+    url.default_port = 80;
     if (ngx_parse_url(ac->pool, &url) != NGX_OK || url.naddrs == 0) {
         ngx_log_error(NGX_LOG_ERR, ngx_anytls_conn_log(ac), 0,
                       "anytls: invalid fallback \"%V\"", &target);
