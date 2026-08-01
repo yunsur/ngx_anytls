@@ -13,6 +13,9 @@
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_connection_private.h"
 
+/* Aligns with sing-box's default TCPConnectTimeout (5s). */
+#define NGX_ANYTLS_UPSTREAM_CONNECT_TIMEOUT_MS  5000
+
 static void *ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac,
     size_t len);
 static void ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac,
@@ -365,6 +368,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     }
 
     ngx_anytls_upstream_mux_on_connect_pending(st->ac, st);
+    ngx_add_timer(c->write, NGX_ANYTLS_UPSTREAM_CONNECT_TIMEOUT_MS);
 
     if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
         return NGX_ERROR;
@@ -592,12 +596,25 @@ ngx_anytls_upstream_write_handler(ngx_event_t *wev)
     st = c->data;
 
     if (st->state == NGX_ANYTLS_STREAM_CONNECTING) {
+        if (wev->timedout) {
+            (void) ngx_anytls_client_mux_send_synack(st,
+                (u_char *) "connect timeout",
+                sizeof("connect timeout") - 1);
+            ngx_anytls_stream_close(st);
+            return;
+        }
+
         if (ngx_anytls_test_connect(c) != NGX_OK) {
             (void) ngx_anytls_client_mux_send_synack(st, (u_char *) "connect failed",
                                           sizeof("connect failed") - 1);
             ngx_anytls_stream_close(st);
             return;
         }
+
+        if (c->write->timer_set) {
+            ngx_del_timer(c->write);
+        }
+
         if (ngx_anytls_upstream_mux_on_connect_ready(st->ac, st)
             != NGX_OK)
         {
