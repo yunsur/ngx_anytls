@@ -1,0 +1,71 @@
+name: Fuzz
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'fuzz/**'
+      - '.github/workflows/fuzz.yml'
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    name: libFuzzer smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+
+      - name: Install clang and openssl dev headers
+        run: sudo apt-get update && sudo apt-get install -y clang libssl-dev
+
+      - name: Fetch nginx source
+        run: |
+          git clone --depth 1 --branch release-1.30.3 \
+            https://github.com/nginx/nginx.git "$GITHUB_WORKSPACE/nginx-src"
+
+      - name: Generate nginx build headers
+        run: |
+          cd "$GITHUB_WORKSPACE/nginx-src"
+          ./auto/configure --with-stream --with-stream_ssl_module
+
+      - name: Configure fuzz build
+        run: |
+          cmake -B build-fuzz \
+            -DCMAKE_C_COMPILER=clang \
+            -DNGX_SRC="$GITHUB_WORKSPACE/nginx-src" \
+            fuzz
+
+      - name: Build fuzz targets
+        run: cmake --build build-fuzz -j"$(nproc)"
+
+      - name: Run fuzz targets
+        run: |
+          set -e
+          cd build-fuzz
+          for spec in \
+            "frame_parse:frame_parse" \
+            "settings_parse:settings_parse" \
+            "padding_validate:padding" \
+            "uot_packet:uot_packet" \
+            "auth:auth"; do
+            target="${spec%%:*}"
+            corpus="${spec##*:}"
+            echo "=== fuzzing ${target} ==="
+            ./fuzz_${target} \
+              ../fuzz/corpus/${corpus}/ \
+              -max_total_time=60 \
+              -max_len=4096 \
+              -timeout=5 \
+              -rss_limit_mb=2048
+          done
+
+      - name: Upload crash artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: build-fuzz/**/crash-*
+          if-no-files-found: ignore
