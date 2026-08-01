@@ -1,0 +1,44 @@
+name: Unit Tests
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/c/**'
+      - 'fuzz/stub/**'
+      - '.github/workflows/unit-test.yml'
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: C unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+
+      - name: Fetch nginx source
+        run: |
+          git clone --depth 1 --branch release-1.30.3 \
+            https://github.com/nginx/nginx.git "$GITHUB_WORKSPACE/nginx-src"
+
+      - name: Generate nginx build headers
+        run: |
+          cd "$GITHUB_WORKSPACE/nginx-src"
+          ./auto/configure --with-stream --with-stream_ssl_module
+
+      - name: Configure and build (ASan+UBSan)
+        run: |
+          cmake -B build-unit \
+            -DNGX_SRC="$GITHUB_WORKSPACE/nginx-src" \
+            -DNGX_ANYTLS_UNIT_SANITIZE=ON \
+            tests/c
+          cmake --build build-unit -j"$(nproc)"
+
+      - name: Run unit tests
+        run: ctest --test-dir build-unit --output-on-failure

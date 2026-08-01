@@ -1,2 +1,4 @@
 *.DS_Store
 build-fuzz/
+build-unit/
+build-unit-asan/
