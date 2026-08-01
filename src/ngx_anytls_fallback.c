@@ -14,6 +14,32 @@ static ngx_int_t ngx_anytls_fallback_flush_buf(ngx_anytls_connection_t *ac,
     ngx_connection_t *to, ngx_buf_t *b, ngx_uint_t upstream);
 static ngx_uint_t ngx_anytls_fallback_buf_pending(ngx_buf_t *b);
 
+static ngx_int_t
+ngx_anytls_fallback_test_connect(ngx_connection_t *c)
+{
+    int err;
+    socklen_t len;
+
+    err = 0;
+    len = sizeof(err);
+
+    if (getsockopt(c->fd, SOL_SOCKET, SO_ERROR, (void *) &err, &len) == -1) {
+        return NGX_ERROR;
+    }
+
+    if (err) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+static void
+ngx_anytls_fallback_bad_gateway(ngx_anytls_connection_t *ac)
+{
+    ngx_anytls_finalize_rc(ac, NGX_STREAM_BAD_GATEWAY);
+}
+
 ngx_int_t
 ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     size_t raw_len)
@@ -66,6 +92,17 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     ac->fallback->pool = ac->pool;
     ac->fallback->log = ngx_anytls_conn_log(ac);
 
+    if (rc == NGX_AGAIN) {
+        ngx_add_timer(ac->fallback->write, ac->conf->fallback_connect_timeout);
+
+    } else if (rc == NGX_OK) {
+        /* Immediate connect: no SO_ERROR test needed; the posted write
+         * event below goes straight to replay. */
+        ac->fallback_connected = 1;
+        ngx_anytls_upstream_state_on_connect(ac->session,
+                                             &ac->fallback_state);
+    }
+
     b = ngx_create_temp_buf(ac->pool, raw_len + 128);
     if (b == NULL) {
         return NGX_ERROR;
@@ -101,6 +138,38 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
 
     if (c != ac->fallback && c != ac->client) {
         return;
+    }
+
+    if (c == ac->fallback && !ac->fallback_connected) {
+        /* Fallback upstream connect completion (or timeout). */
+        if (c->write->timedout) {
+            ngx_log_error(NGX_LOG_ERR, ngx_anytls_conn_log(ac), NGX_ETIMEDOUT,
+                          "anytls: fallback upstream connect timed out");
+            ngx_anytls_fallback_bad_gateway(ac);
+            return;
+        }
+
+        if (!c->write->ready) {
+            if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
+                ngx_anytls_finalize(ac);
+            }
+            return;
+        }
+
+        if (ngx_anytls_fallback_test_connect(c) != NGX_OK) {
+            ngx_log_error(NGX_LOG_ERR, ngx_anytls_conn_log(ac), 0,
+                          "anytls: fallback upstream connect failed");
+            ngx_anytls_fallback_bad_gateway(ac);
+            return;
+        }
+
+        if (c->write->timer_set) {
+            ngx_del_timer(c->write);
+        }
+
+        ac->fallback_connected = 1;
+        ngx_anytls_upstream_state_on_connect(ac->session,
+                                             &ac->fallback_state);
     }
 
     if (!c->write->ready) {

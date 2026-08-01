@@ -116,6 +116,13 @@ ngx_anytls_close_if_idle(ngx_anytls_connection_t *ac)
 void
 ngx_anytls_finalize(ngx_anytls_connection_t *ac)
 {
+    ngx_anytls_finalize_rc(ac, NGX_STREAM_OK);
+}
+
+
+void
+ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
+{
     ngx_queue_t *q, *next;
     ngx_anytls_stream_t *st;
 
@@ -156,5 +163,5 @@ ngx_anytls_finalize(ngx_anytls_connection_t *ac)
         ac->fallback = NULL;
     }
 
-    ngx_stream_finalize_session(ac->session, NGX_STREAM_OK);
+    ngx_stream_finalize_session(ac->session, rc);
 }

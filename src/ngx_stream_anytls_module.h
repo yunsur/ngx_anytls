@@ -29,6 +29,7 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_MIN_SCHEDULE_FRAMES 16
 #define NGX_ANYTLS_MAX_SCHEDULE_BYTES  (1024 * 1024)
 #define NGX_ANYTLS_DEFAULT_WRITE_TIMEOUT 60000
+#define NGX_ANYTLS_DEFAULT_FALLBACK_CONNECT_TIMEOUT 60000
 #define NGX_ANYTLS_DEFAULT_PADDING                                           \
     "stop=8\n"                                                              \
     "0=30-30\n"                                                            \
@@ -91,6 +92,7 @@ void ngx_anytls_upstream_write_handler(ngx_event_t *wev);
 void ngx_anytls_udp_read_handler(ngx_event_t *rev);
 void ngx_anytls_udp_write_handler(ngx_event_t *wev);
 void ngx_anytls_finalize(ngx_anytls_connection_t *ac);
+void ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc);
 
 
 

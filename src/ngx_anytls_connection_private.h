@@ -39,6 +39,7 @@ typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_stream_complex_value_t *fallback;
     ngx_flag_t               fallback_proxy_protocol;
     ngx_flag_t               fallback_proxy_protocol_set;
+    ngx_msec_t               fallback_connect_timeout;
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
     size_t                   max_pending_output;
@@ -115,5 +116,6 @@ struct ngx_anytls_connection_s {
     ngx_buf_t               *fallback_client_buf;
     ngx_buf_t               *fallback_upstream_buf;
     ngx_anytls_upstream_state_tracker_t fallback_state;
+    unsigned                 fallback_connected:1;
 };
 #endif /* NGX_ANYTLS_PRIVATE_H_INCLUDED */
