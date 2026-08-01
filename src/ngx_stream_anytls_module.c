@@ -5,6 +5,7 @@
 
 #include "ngx_stream_anytls_module.h"
 #include "ngx_anytls_padding.h"
+#include "ngx_anytls_reject_plain_http.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_connection_private.h"
 
@@ -21,6 +22,7 @@ static char *ngx_stream_anytls_fallback(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_stream_anytls_fallback_proxy_protocol(ngx_conf_t *cf,
     ngx_command_t *cmd, void *conf);
+static ngx_int_t ngx_stream_anytls_postconfiguration(ngx_conf_t *cf);
 static char *ngx_stream_anytls_size_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_stream_anytls_num_slot(ngx_conf_t *cf, ngx_command_t *cmd,
@@ -34,6 +36,13 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
       ngx_stream_anytls_flag,
       NGX_STREAM_SRV_CONF_OFFSET,
       offsetof(ngx_stream_anytls_srv_conf_t, enabled),
+      NULL },
+
+    { ngx_string("anytls_reject_plain_http"),
+      NGX_STREAM_SRV_CONF|NGX_CONF_FLAG,
+      ngx_stream_anytls_flag,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_stream_anytls_srv_conf_t, reject_plain_http),
       NULL },
 
     { ngx_string("anytls_password"),
@@ -146,7 +155,7 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
 
 static ngx_stream_module_t ngx_stream_anytls_module_ctx = {
     NULL,                                  /* preconfiguration */
-    NULL,                                  /* postconfiguration */
+    ngx_stream_anytls_postconfiguration,   /* postconfiguration */
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */
     ngx_stream_anytls_create_srv_conf,     /* create server configuration */
@@ -179,6 +188,7 @@ ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf)
     }
 
     conf->enabled = NGX_CONF_UNSET;
+    conf->reject_plain_http = NGX_CONF_UNSET;
     conf->fallback_proxy_protocol = NGX_CONF_UNSET;
     conf->fallback_proxy_protocol_set = NGX_CONF_UNSET;
     conf->buffer_size = NGX_CONF_UNSET_SIZE;
@@ -205,6 +215,7 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_stream_core_srv_conf_t   *cscf;
 
     ngx_conf_merge_value(conf->enabled, prev->enabled, 0);
+    ngx_conf_merge_value(conf->reject_plain_http, prev->reject_plain_http, 1);
 
     if (!conf->password_set && prev->password_set) {
         ngx_memcpy(conf->password_hash, prev->password_hash, 32);
@@ -298,6 +309,14 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 
     return NGX_CONF_OK;
 }
+
+
+static ngx_int_t
+ngx_stream_anytls_postconfiguration(ngx_conf_t *cf)
+{
+    return ngx_anytls_reject_plain_http_postconfiguration(cf);
+}
+
 
 static char *
 ngx_stream_anytls_flag(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)

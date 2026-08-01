@@ -30,6 +30,7 @@
 
 typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_flag_t               enabled;
+    ngx_flag_t               reject_plain_http;
     ngx_flag_t               password_set;
     u_char                   password_hash[32];
     ngx_str_t                padding_file;

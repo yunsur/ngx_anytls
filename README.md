@@ -21,6 +21,21 @@ AnyTLS v2 inbound server for nginx stream. Implements the server side of the Any
 
 Enable or disable AnyTLS processing for the server block.
 
+### `anytls_reject_plain_http`
+
+- **Syntax:** `anytls_reject_plain_http on | off;`
+- **Default:** `on`
+- **Context:** `stream`, `server`
+
+When `on`, plaintext traffic arriving on a TLS/AnyTLS port is answered with a `400 Bad Request` page instead of being dropped by the failed TLS handshake, mirroring the http module's behaviour on an HTTPS port. The first bytes are peeked (non-consumed) and classified:
+
+- Requests that parse as HTTP/1.0 or HTTP/1.1 with a `GET`/`POST`/`PUT`/`DELETE`/`OPTIONS`/`PATCH` method, a complete request line, and (for HTTP/1.1) a `Host` header get the "plain HTTP request was sent to HTTPS port" page.
+- `CONNECT` and `TRACE` requests (not allowed on an origin server) with a valid request line and headers get a `405 Not Allowed` page; HTTP/1.1 without `Host` still gets the default 400 (Host is checked first, as in nginx).
+- All other plaintext — HTTP/1.1 without `Host`, other methods (`HEAD`), HTTP/0.9, SSH banners, SMTP/FTP commands, malformed input — gets the default `400 Bad Request` page.
+- Input shorter than 7 bytes gets no answer (the connection times out), matching nginx.
+
+TLS traffic is unaffected.
+
 ### `anytls_password`
 
 - **Syntax:** `anytls_password <string>;`
