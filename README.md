@@ -1,6 +1,6 @@
 # ngx_stream_anytls_module
 
-AnyTLS v2 inbound server for nginx stream. Implements the server side of the AnyTLS transport protocol — the same protocol used by `sing-box`/`sing-anytls` — as an nginx stream dynamic module.
+AnyTLS v2 inbound server for nginx stream. Implements the server side of the AnyTLS v2 transport protocol as an nginx stream dynamic module.
 
 ## Features
 

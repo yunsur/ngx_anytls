@@ -1,6 +1,6 @@
 # AnyTLS v2 Protocol Reference
 
-> Behavior baseline: local `sing-anytls` / `sing-box` implementation
+> Behavior baseline: local reference implementation of the AnyTLS v2 server
 
 This document provides a comprehensive reference for implementing AnyTLS v2 server in the nginx module.
 
@@ -428,7 +428,7 @@ if (strcmp(client_padding_md5, server_padding_md5) != 0) {
 
 **Server Receiving from Client:**
 - Payload is consumed and ignored (no padding update, no close)
-- This keeps server behavior aligned with sing-anytls inbound handling
+- Matches the reference server's inbound handling
 
 #### CMD_SYNACK (7) - Version 2
 
@@ -445,7 +445,7 @@ if (strcmp(client_padding_md5, server_padding_md5) != 0) {
 
 **Server Receiving from Client (parity behavior):**
 - Empty payload: ignored
-- Non-empty payload and matching stream exists: close that stream (FIN path), same net effect as sing-anytls `closeWithError`
+- Non-empty payload and matching stream exists: close that stream (FIN path), equivalent to `closeWithError` semantics
 
 **Server Sending:**
 ```c
@@ -1134,7 +1134,7 @@ if (!stream) {
 **Unknown Command:**
 ```c
 default:
-    // sing-anytls default branch assumes unknown command has no data.
+    // Reference server default branch assumes unknown command has no data.
     // Handle as header-only and continue without consuming declared payload.
     break;
 ```
