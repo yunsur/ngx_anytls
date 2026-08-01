@@ -72,8 +72,16 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
     }
 
     if (ac->conf->fallback_proxy_protocol) {
-        b->last = ngx_cpymem(b->last, "PROXY UNKNOWN\r\n",
-                             sizeof("PROXY UNKNOWN\r\n") - 1);
+        u_char *p;
+
+        p = ngx_proxy_protocol_write(ac->client, b->last, b->end);
+        if (p == NULL) {
+            ngx_log_error(NGX_LOG_WARN, ngx_anytls_conn_log(ac), 0,
+                          "anytls: failed to build fallback PROXY protocol "
+                          "header, sending raw bytes only");
+        } else {
+            b->last = p;
+        }
     }
     b->last = ngx_cpymem(b->last, raw, raw_len);
     ac->fallback_replay = b;
