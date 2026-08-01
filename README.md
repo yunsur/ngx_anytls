@@ -117,6 +117,14 @@ Maximum time a connection may keep unsent output queued to the client before the
 
 Maximum pending UDP packets per UoT stream before applying backpressure.
 
+### `anytls_uot_idle_timeout`
+
+- **Syntax:** `anytls_uot_idle_timeout <time>;`
+- **Default:** `5m`
+- **Context:** `stream`, `server`
+
+Maximum idle time for a UoT stream before closing it. Set to `0` to disable this timeout.
+
 ### `anytls_uot_pending_bytes`
 
 - **Syntax:** `anytls_uot_pending_bytes <size>;`
@@ -178,6 +186,7 @@ stream {
         anytls_max_pending_output 8m;
         anytls_max_pending_input 8m;
         anytls_write_timeout 60s;
+        anytls_uot_idle_timeout 5m;
     }
 }
 ```

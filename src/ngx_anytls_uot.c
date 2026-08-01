@@ -279,7 +279,7 @@ ngx_anytls_uot_arm_idle_timer(ngx_anytls_stream_t *st)
         return;
     }
 
-    timeout = st->ac->conf->resolver_timeout;
+    timeout = st->ac->conf->uot_idle_timeout;
     if (timeout == 0) {
         return;
     }

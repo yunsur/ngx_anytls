@@ -106,6 +106,13 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
       offsetof(ngx_stream_anytls_srv_conf_t, write_timeout),
       NULL },
 
+    { ngx_string("anytls_uot_idle_timeout"),
+      NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_conf_set_msec_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_stream_anytls_srv_conf_t, uot_idle_timeout),
+      NULL },
+
     { ngx_string("anytls_uot_pending_packets"),
       NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
       ngx_stream_anytls_num_slot,
@@ -166,6 +173,7 @@ ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf)
     conf->max_pending_input = NGX_CONF_UNSET_SIZE;
     conf->resolver_timeout = NGX_CONF_UNSET_MSEC;
     conf->write_timeout = NGX_CONF_UNSET_MSEC;
+    conf->uot_idle_timeout = NGX_CONF_UNSET_MSEC;
     conf->fallback_connect_timeout = NGX_CONF_UNSET_MSEC;
     conf->uot_pending_packets = NGX_CONF_UNSET_UINT;
     conf->uot_pending_bytes = NGX_CONF_UNSET_SIZE;
@@ -230,6 +238,8 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                               30000);
     ngx_conf_merge_msec_value(conf->write_timeout, prev->write_timeout,
                               NGX_ANYTLS_DEFAULT_WRITE_TIMEOUT);
+    ngx_conf_merge_msec_value(conf->uot_idle_timeout, prev->uot_idle_timeout,
+                              NGX_ANYTLS_DEFAULT_UOT_IDLE_TIMEOUT);
     ngx_conf_merge_msec_value(conf->fallback_connect_timeout,
                               prev->fallback_connect_timeout,
                               NGX_ANYTLS_DEFAULT_FALLBACK_CONNECT_TIMEOUT);

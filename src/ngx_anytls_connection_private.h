@@ -47,6 +47,7 @@ typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_resolver_t          *resolver;
     ngx_msec_t               resolver_timeout;
     ngx_msec_t               write_timeout;
+    ngx_msec_t               uot_idle_timeout;
     ngx_uint_t               uot_pending_packets;
     size_t                   uot_pending_bytes;
 } ngx_stream_anytls_srv_conf_t;
