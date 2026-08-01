@@ -13,6 +13,9 @@
 #include "ngx_anytls_session_actions.h"
 #include "ngx_anytls_connection_private.h"
 
+#define NGX_ANYTLS_CLIENT_READ_BUDGET_BYTES  (1024 * 1024)
+#define NGX_ANYTLS_CLIENT_READ_BUDGET_LOOPS  16
+
 
 static void ngx_anytls_send_http_400(ngx_anytls_connection_t *ac);
 static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
@@ -254,6 +257,9 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     u_char *buf;
     ssize_t n;
     ngx_int_t rc;
+    size_t read_bytes;
+    ngx_uint_t read_loops;
+    ngx_uint_t budget_exhausted;
 
     c = rev->data;
 
@@ -286,6 +292,9 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     }
 
     buf = ac->read_buf;
+    read_bytes = 0;
+    read_loops = 0;
+    budget_exhausted = 0;
 
     for ( ;; ) {
         n = ngx_anytls_transport_read(c, buf + ac->remnant_len, ac->read_buf_size);
@@ -323,10 +332,23 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
         if (ac->client_read_blocked) {
             return;
         }
+
+        read_bytes += (size_t) n;
+        read_loops++;
+
+        if (read_bytes >= NGX_ANYTLS_CLIENT_READ_BUDGET_BYTES
+            || read_loops >= NGX_ANYTLS_CLIENT_READ_BUDGET_LOOPS)
+        {
+            budget_exhausted = 1;
+            break;
+        }
     }
 
     if (!ac->client_read_blocked) {
         (void) ngx_anytls_transport_arm_read(c);
+        if (budget_exhausted) {
+            ngx_post_event(c->read, &ngx_posted_next_events);
+        }
     }
 }
 

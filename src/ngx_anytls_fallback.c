@@ -8,10 +8,14 @@
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_connection_private.h"
 
+#define NGX_ANYTLS_FALLBACK_READ_BUDGET_BYTES   (1024 * 1024)
+#define NGX_ANYTLS_FALLBACK_READ_BUDGET_LOOPS   16
+#define NGX_ANYTLS_FALLBACK_WRITE_BUDGET_BYTES  (1024 * 1024)
+
 static ngx_buf_t *ngx_anytls_fallback_get_buf(ngx_anytls_connection_t *ac,
     ngx_buf_t **slot);
 static ngx_int_t ngx_anytls_fallback_flush_buf(ngx_anytls_connection_t *ac,
-    ngx_connection_t *to, ngx_buf_t *b, ngx_uint_t upstream);
+    ngx_connection_t *to, ngx_buf_t *b, ngx_uint_t upstream, size_t budget);
 static ngx_uint_t ngx_anytls_fallback_buf_pending(ngx_buf_t *b);
 
 static ngx_int_t
@@ -182,7 +186,8 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
     if (c == ac->fallback) {
         ngx_anytls_upstream_state_on_connect(ac->session, &ac->fallback_state);
 
-        rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_replay, 1);
+        rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_replay, 1,
+                                           NGX_ANYTLS_FALLBACK_WRITE_BUDGET_BYTES);
         if (rc == NGX_ERROR) {
             ngx_anytls_finalize(ac);
             return;
@@ -193,7 +198,8 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
 
         ac->fallback_replay = NULL;
 
-        rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_client_buf, 1);
+        rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_client_buf, 1,
+                                           NGX_ANYTLS_FALLBACK_WRITE_BUDGET_BYTES);
         if (rc == NGX_ERROR) {
             ngx_anytls_finalize(ac);
             return;
@@ -211,7 +217,8 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
         return;
     }
 
-    rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_upstream_buf, 0);
+    rc = ngx_anytls_fallback_flush_buf(ac, c, ac->fallback_upstream_buf, 0,
+                                       NGX_ANYTLS_FALLBACK_WRITE_BUDGET_BYTES);
     if (rc == NGX_ERROR) {
         ngx_anytls_finalize(ac);
         return;
@@ -233,6 +240,9 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
     ssize_t n;
     ngx_int_t rc;
     ngx_uint_t upstream;
+    size_t read_bytes;
+    ngx_uint_t read_loops;
+    ngx_uint_t budget_exhausted;
 
     if (to == NULL) {
         ngx_anytls_finalize(ac);
@@ -256,12 +266,17 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
     }
 
     if (ngx_anytls_fallback_buf_pending(b)) {
-        rc = ngx_anytls_fallback_flush_buf(ac, to, b, upstream);
+        rc = ngx_anytls_fallback_flush_buf(ac, to, b, upstream,
+                                           NGX_ANYTLS_FALLBACK_WRITE_BUDGET_BYTES);
         if (rc == NGX_ERROR) {
             ngx_anytls_finalize(ac);
         }
         return;
     }
+
+    read_bytes = 0;
+    read_loops = 0;
+    budget_exhausted = 0;
 
     for ( ;; ) {
         if (b->last == b->end) {
@@ -287,7 +302,8 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
                                                     &ac->fallback_state);
         }
 
-        rc = ngx_anytls_fallback_flush_buf(ac, to, b, upstream);
+        rc = ngx_anytls_fallback_flush_buf(ac, to, b, upstream,
+                                           NGX_ANYTLS_FALLBACK_WRITE_BUDGET_BYTES);
         if (rc == NGX_ERROR) {
             ngx_anytls_finalize(ac);
             return;
@@ -295,10 +311,25 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
         if (rc == NGX_AGAIN) {
             return;
         }
+
+        read_bytes += (size_t) n;
+        read_loops++;
+
+        if (read_bytes >= NGX_ANYTLS_FALLBACK_READ_BUDGET_BYTES
+            || read_loops >= NGX_ANYTLS_FALLBACK_READ_BUDGET_LOOPS)
+        {
+            budget_exhausted = 1;
+            break;
+        }
     }
 
     if (ngx_anytls_transport_arm_read(from) != NGX_OK) {
         ngx_anytls_finalize(ac);
+        return;
+    }
+
+    if (budget_exhausted) {
+        ngx_post_event(from->read, &ngx_posted_next_events);
     }
 }
 
@@ -320,12 +351,21 @@ ngx_anytls_fallback_buf_pending(ngx_buf_t *b)
 
 static ngx_int_t
 ngx_anytls_fallback_flush_buf(ngx_anytls_connection_t *ac, ngx_connection_t *to,
-    ngx_buf_t *b, ngx_uint_t upstream)
+    ngx_buf_t *b, ngx_uint_t upstream, size_t budget)
 {
     ssize_t n;
+    size_t  size, sent;
+
+    sent = 0;
 
     while (b != NULL && b->pos < b->last) {
-        n = ngx_anytls_transport_send(to, b->pos, (size_t) (b->last - b->pos));
+        size = (size_t) (b->last - b->pos);
+
+        if (size > budget - sent) {
+            size = budget - sent;
+        }
+
+        n = ngx_anytls_transport_send(to, b->pos, size);
         if (n == NGX_AGAIN) {
             if (ngx_anytls_transport_arm_write(to) != NGX_OK) {
                 return NGX_ERROR;
@@ -337,6 +377,7 @@ ngx_anytls_fallback_flush_buf(ngx_anytls_connection_t *ac, ngx_connection_t *to,
         }
 
         b->pos += n;
+        sent += (size_t) n;
 
         if (upstream) {
             ngx_anytls_upstream_state_add_bytes_sent(ac->session,
@@ -345,6 +386,14 @@ ngx_anytls_fallback_flush_buf(ngx_anytls_connection_t *ac, ngx_connection_t *to,
             ngx_anytls_upstream_state_add_bytes_received(ac->session,
                                                          &ac->fallback_state,
                                                          n);
+        }
+
+        if (sent >= budget && b->pos < b->last) {
+            if (ngx_anytls_transport_arm_write(to) != NGX_OK) {
+                return NGX_ERROR;
+            }
+            ngx_post_event(to->write, &ngx_posted_next_events);
+            return NGX_AGAIN;
         }
     }
 
