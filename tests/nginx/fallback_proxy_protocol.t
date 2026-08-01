@@ -54,7 +54,7 @@ my $response = stream('127.0.0.1:' . port(8080))->io($payload);
 my $listen_port = port(8080);
 
 like($response,
-    qr/^PROXY UNKNOWN\r\n/,
+    qr/^PROXY (UNKNOWN|TCP4 127\.0\.0\.1 127\.0\.0\.1 \d+ \d+)\r\n/,
     'auth failure fallback prepends PROXY protocol header');
 like($response, qr/x{32}/,
     'auth failure fallback replays buffered bytes after PROXY header');
