@@ -68,6 +68,14 @@ Fallback upstream for connections where AnyTLS authentication fails. Plain TLS c
 
 When `on`, prepends a PROXY protocol v1 header on fallback connections before replaying buffered bytes.
 
+### `anytls_upstream_connect_timeout`
+
+- **Syntax:** `anytls_upstream_connect_timeout <time>;`
+- **Default:** `5s`
+- **Context:** `stream`, `server`
+
+Maximum time an AnyTLS stream may spend connecting to its upstream target before the stream is closed. Default matches the protocol's 5s client-side default. Set higher for high-latency paths, lower for fast failover.
+
 ### `anytls_buffer_size`
 
 - **Syntax:** `anytls_buffer_size <size>;`

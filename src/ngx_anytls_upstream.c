@@ -13,9 +13,6 @@
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_connection_private.h"
 
-/* Aligns with sing-box's default TCPConnectTimeout (5s). */
-#define NGX_ANYTLS_UPSTREAM_CONNECT_TIMEOUT_MS  5000
-
 static void *ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac,
     size_t len);
 static void ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac,
@@ -368,7 +365,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     }
 
     ngx_anytls_upstream_mux_on_connect_pending(st->ac, st);
-    ngx_add_timer(c->write, NGX_ANYTLS_UPSTREAM_CONNECT_TIMEOUT_MS);
+    ngx_add_timer(c->write, st->ac->conf->upstream_connect_timeout);
 
     if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
         return NGX_ERROR;
