@@ -5,6 +5,9 @@
 
 #include "ngx_anytls_transport_ngx.h"
 
+#define NGX_ANYTLS_UDP_RCVBUF_SIZE  (256 * 1024)
+#define NGX_ANYTLS_UDP_SNDBUF_SIZE  (256 * 1024)
+
 
 ssize_t
 ngx_anytls_transport_read(ngx_connection_t *c, u_char *buf, size_t size)
@@ -128,6 +131,18 @@ ngx_anytls_transport_open_udp(ngx_log_t *log, ngx_uint_t family)
     if (ngx_nonblocking(fd) == -1) {
         ngx_close_socket(fd);
         return NULL;
+    }
+
+    {
+        int  rcvbuf, sndbuf;
+
+        rcvbuf = NGX_ANYTLS_UDP_RCVBUF_SIZE;
+        sndbuf = NGX_ANYTLS_UDP_SNDBUF_SIZE;
+
+        (void) setsockopt(fd, SOL_SOCKET, SO_RCVBUF,
+                          (const void *) &rcvbuf, sizeof(int));
+        (void) setsockopt(fd, SOL_SOCKET, SO_SNDBUF,
+                          (const void *) &sndbuf, sizeof(int));
     }
 
     c = ngx_get_connection(fd, log);
