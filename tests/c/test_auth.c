@@ -25,8 +25,11 @@ set_up(void)
     ac = ngx_pcalloc(pool, sizeof(*ac));
     conf = ngx_pcalloc(pool, sizeof(*conf));
 
-    memcpy(conf->password_hash, fuzz_password_hash, 32);
-    conf->password_set = 1;
+    conf->users = ngx_pcalloc(pool, sizeof(ngx_anytls_user_t));
+    conf->users_n = 1;
+    conf->users[0].name.len = 8;
+    conf->users[0].name.data = (u_char *) "test-user";
+    memcpy(conf->users[0].hash, fuzz_password_hash, 32);
     ac->conf = conf;
 }
 
@@ -43,6 +46,10 @@ test_ok_no_padding(void)
     r = ngx_anytls_auth_process(ac, data, sizeof(data));
     ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_OK);
     ASSERT_EQ(r.consumed, sizeof(data));
+
+    /* matching named user is recorded on the connection */
+    ASSERT_EQ((int) ac->user_name.len, 8);
+    ASSERT_MEM(ac->user_name.data, "test-user", 8);
 }
 
 static void

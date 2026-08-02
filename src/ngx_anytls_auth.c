@@ -50,20 +50,38 @@ ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
         }
     }
 
-    if (ngx_anytls_auth_hash_eq(ac->auth, ac->conf->password_hash, 32)
-        != NGX_OK)
     {
-        if (len > 0) {
-            n = ngx_min(len, sizeof(ac->auth) - ac->auth_len);
-            ngx_memcpy(ac->auth + ac->auth_len, data, n);
-            ac->auth_len += n;
-            result.consumed += n;
+        /* Constant-time set comparison: walk every user's hash before
+         * deciding, so the number/position of users is not leaked
+         * through timing.  The first matching name is captured. */
+        ngx_anytls_user_t *users;
+        ngx_uint_t i, matched;
+
+        users = ac->conf->users;
+        matched = 0;
+
+        for (i = 0; i < ac->conf->users_n; i++) {
+            if (ngx_anytls_auth_hash_eq(ac->auth, users[i].hash, 32) == NGX_OK) {
+                if (!matched) {
+                    ac->user_name = users[i].name;
+                }
+                matched = 1;
+            }
         }
 
-        result.result = NGX_ANYTLS_AUTH_FALLBACK;
-        result.fallback_replay = ac->auth;
-        result.fallback_replay_len = ac->auth_len;
-        return result;
+        if (!matched) {
+            if (len > 0) {
+                n = ngx_min(len, sizeof(ac->auth) - ac->auth_len);
+                ngx_memcpy(ac->auth + ac->auth_len, data, n);
+                ac->auth_len += n;
+                result.consumed += n;
+            }
+
+            result.result = NGX_ANYTLS_AUTH_FALLBACK;
+            result.fallback_replay = ac->auth;
+            result.fallback_replay_len = ac->auth_len;
+            return result;
+        }
     }
 
     ac->auth_padding_len = (uint16_t) ((ac->auth[32] << 8) | ac->auth[33]);

@@ -36,8 +36,9 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         return 0;
     }
 
-    ngx_memcpy(conf->password_hash, fuzz_password_hash, 32);
-    conf->password_set = 1;
+    conf->users = ngx_pcalloc(pool, sizeof(ngx_anytls_user_t));
+    conf->users_n = 1;
+    ngx_memcpy(conf->users[0].hash, fuzz_password_hash, 32);
     ac->conf = conf;
 
     (void) ngx_anytls_auth_process(ac, (u_char *) data, size);

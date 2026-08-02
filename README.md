@@ -36,14 +36,14 @@ When `on`, plaintext traffic arriving on a TLS/AnyTLS port is answered with a `4
 
 TLS traffic is unaffected.
 
-### `anytls_password`
+### `anytls_user`
 
-- **Syntax:** `anytls_password <string>;`
+- **Syntax:** `anytls_user <name> <password>;`
 - **Default:** —
-- **Context:** `stream`, `server`
+- **Context:** `server`
 - **Required:** yes (when `anytls on`)
 
-AnyTLS password. Stored as SHA-256 hash internally.
+Named user credential. Repeatable (up to 64 users). The password is stored as a SHA-256 hash internally; authentication compares all configured users in constant time. The authenticated user's name is recorded on the connection and reported in debug logs.
 
 ### `anytls_padding`
 
@@ -208,7 +208,7 @@ stream {
         ssl_certificate_key /path/to/privkey.pem;
 
         anytls on;
-        anytls_password your-password;
+        anytls_user client your-password;
 
         anytls_fallback 127.0.0.1:8080;
         anytls_fallback_proxy_protocol on;

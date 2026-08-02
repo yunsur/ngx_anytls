@@ -14,7 +14,7 @@ static char *ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent,
     void *child);
 static char *ngx_stream_anytls_flag(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
-static char *ngx_stream_anytls_password(ngx_conf_t *cf, ngx_command_t *cmd,
+static char *ngx_stream_anytls_user(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_stream_anytls_padding(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
@@ -45,9 +45,9 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
       offsetof(ngx_stream_anytls_srv_conf_t, reject_plain_http),
       NULL },
 
-    { ngx_string("anytls_password"),
-      NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
-      ngx_stream_anytls_password,
+    { ngx_string("anytls_user"),
+      NGX_STREAM_SRV_CONF|NGX_CONF_TAKE2,
+      ngx_stream_anytls_user,
       NGX_STREAM_SRV_CONF_OFFSET,
       0,
       NULL },
@@ -217,11 +217,6 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(conf->enabled, prev->enabled, 0);
     ngx_conf_merge_value(conf->reject_plain_http, prev->reject_plain_http, 1);
 
-    if (!conf->password_set && prev->password_set) {
-        ngx_memcpy(conf->password_hash, prev->password_hash, 32);
-        conf->password_set = 1;
-    }
-
     if (conf->padding_file.data == NULL && prev->padding_file.data != NULL) {
         conf->padding_file = prev->padding_file;
         conf->padding_data = prev->padding_data;
@@ -283,10 +278,40 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                               NGX_ANYTLS_DEFAULT_UOT_PENDING_BYTES);
 
     if (conf->enabled) {
-        if (!conf->password_set) {
+        ngx_anytls_user_t *users;
+        ngx_uint_t i, j;
+
+        if (conf->users_n == 0) {
             ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                               "anytls: \"anytls_password\" is required");
+                               "anytls: \"anytls_user\" is required");
             return NGX_CONF_ERROR;
+        }
+
+        /* reject duplicate names and duplicate password hashes at config
+         * time (at most 64 users, O(n^2) is negligible here); a shared
+         * hash would otherwise make "which name" ambiguous */
+        users = conf->users;
+        for (i = 0; i < conf->users_n; i++) {
+            for (j = i + 1; j < conf->users_n; j++) {
+                if (ngx_memcmp(users[i].hash, users[j].hash, 32) == 0) {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                       "anytls: duplicate password for "
+                                       "\"anytls_user %V\" and "
+                                       "\"anytls_user %V\"",
+                                       &users[i].name, &users[j].name);
+                    return NGX_CONF_ERROR;
+                }
+
+                if (users[i].name.len == users[j].name.len
+                    && ngx_memcmp(users[i].name.data, users[j].name.data,
+                                  users[i].name.len) == 0)
+                {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                                       "anytls: duplicate user name "
+                                       "\"%V\"", &users[i].name);
+                    return NGX_CONF_ERROR;
+                }
+            }
         }
     }
 
@@ -325,21 +350,62 @@ ngx_stream_anytls_flag(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 }
 
 static char *
-ngx_stream_anytls_password(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+ngx_stream_anytls_user(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_stream_anytls_srv_conf_t *ascf = conf;
+    ngx_anytls_user_t *users, *u;
     ngx_str_t *value;
-
-    if (ascf->password_set) {
-        return "is duplicate";
-    }
+    ngx_uint_t cap;
 
     value = cf->args->elts;
-    ngx_anytls_sha256(&value[1], ascf->password_hash);
-    ascf->password_set = 1;
+
+    if (value[1].len == 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "\"anytls_user\" name must not be empty");
+        return NGX_CONF_ERROR;
+    }
+
+    if (value[2].len == 0) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "\"anytls_user\" password must not be empty");
+        return NGX_CONF_ERROR;
+    }
+
+    if (ascf->users_n >= NGX_ANYTLS_MAX_USERS) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                           "too many \"anytls_user\" directives "
+                           "(max %ui)", (ngx_uint_t) NGX_ANYTLS_MAX_USERS);
+        return NGX_CONF_ERROR;
+    }
+
+    if (ascf->users_cap == 0) {
+        cap = 8;
+        users = ngx_palloc(cf->pool, cap * sizeof(ngx_anytls_user_t));
+        if (users == NULL) {
+            return NGX_CONF_ERROR;
+        }
+        ascf->users = users;
+        ascf->users_cap = cap;
+
+    } else if (ascf->users_n == ascf->users_cap) {
+        cap = ascf->users_cap * 2;
+        users = ngx_palloc(cf->pool, cap * sizeof(ngx_anytls_user_t));
+        if (users == NULL) {
+            return NGX_CONF_ERROR;
+        }
+        ngx_memcpy(users, ascf->users,
+                   ascf->users_n * sizeof(ngx_anytls_user_t));
+        ascf->users = users;
+        ascf->users_cap = cap;
+    }
+
+    u = &ascf->users[ascf->users_n++];
+    u->name = value[1];
+    ngx_anytls_sha256(&value[2], u->hash);
 
     return NGX_CONF_OK;
 }
+
 
 static char *
 ngx_stream_anytls_padding(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)

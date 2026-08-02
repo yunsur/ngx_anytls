@@ -28,11 +28,18 @@
 #include "ngx_anytls_fallback_private.h"
 
 
+typedef struct {
+    ngx_str_t                name;
+    u_char                   hash[32];
+} ngx_anytls_user_t;
+
+
 typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_flag_t               enabled;
     ngx_flag_t               reject_plain_http;
-    ngx_flag_t               password_set;
-    u_char                   password_hash[32];
+    ngx_anytls_user_t       *users;
+    ngx_uint_t               users_n;
+    ngx_uint_t               users_cap;
     ngx_str_t                padding_file;
     u_char                  *padding_data;
     size_t                   padding_data_len;
@@ -105,7 +112,11 @@ struct ngx_anytls_connection_s {
     uint16_t                 auth_padding_len;
 
     ngx_anytls_session_core_t  session_core;
+    ngx_str_t                 user_name;
     unsigned                 authenticated:1;
+    /* auth hash matched: cached so waiting for a large auth padding
+     * does not rescan the user list on every chunk */
+    unsigned                 auth_hash_matched:1;
     /* NB: settings_received, peer_version, state -> session_core */
     unsigned                 client_eof:1;
     unsigned                 client_read_blocked:1;
