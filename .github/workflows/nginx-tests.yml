@@ -1,0 +1,55 @@
+name: Nginx Tests
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'tests/nginx/**'
+      - '.github/workflows/nginx-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  nginx-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+        with:
+          path: ngx_anytls
+
+      - name: Install build and test deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev libpcre2-dev zlib1g-dev \
+            libio-socket-ssl-perl
+
+      - name: Fetch nginx source
+        run: |
+          git clone --depth 1 --branch release-1.30.3 \
+            https://github.com/nginx/nginx.git "$GITHUB_WORKSPACE/nginx-src"
+
+      - name: Configure nginx with module
+        run: |
+          cd "$GITHUB_WORKSPACE/nginx-src"
+          ./auto/configure \
+            --with-stream \
+            --with-stream_ssl_module \
+            --add-module="$GITHUB_WORKSPACE/ngx_anytls"
+
+      - name: Build nginx
+        run: make -C "$GITHUB_WORKSPACE/nginx-src" -j"$(nproc)"
+
+      - name: Fetch nginx-tests
+        run: |
+          git clone --depth 1 \
+            https://github.com/nginx/nginx-tests.git "$GITHUB_WORKSPACE/nginx-tests"
+
+      - name: Run tests
+        run: |
+          TEST_NGINX_BINARY="$GITHUB_WORKSPACE/nginx-src/objs/nginx" \
+          TEST_NGINX_LIB="$GITHUB_WORKSPACE/nginx-tests/lib" \
+          prove -v tests/nginx/*.t
+        working-directory: ${{ github.workspace }}/ngx_anytls
