@@ -39,7 +39,7 @@ stream {
         ssl_certificate_key localhost.key;
 
         anytls on;
-        anytls_password test-password;
+        anytls_user test test-password;
         anytls_reject_plain_http on;
         anytls_fallback 127.0.0.1:1;
         anytls_fallback_proxy_protocol on;
@@ -52,7 +52,7 @@ stream {
         ssl_certificate_key localhost.key;
 
         anytls on;
-        anytls_password test-password;
+        anytls_user test test-password;
         anytls_reject_plain_http off;
         anytls_fallback 127.0.0.1:1;
         anytls_fallback_proxy_protocol on;

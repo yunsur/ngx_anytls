@@ -45,7 +45,7 @@ stream {
         listen 127.0.0.1:8080;
 
         anytls on;
-        anytls_password test-password;
+        anytls_user test test-password;
         anytls_fallback 127.0.0.1:1;
         anytls_fallback_proxy_protocol on;
     }
