@@ -2,3 +2,7 @@
 build-fuzz/
 build-unit/
 build-unit-asan/
+fuzz/build/
+fuzz/corpus/*
+!fuzz/corpus/*/
+tests/c/build/
