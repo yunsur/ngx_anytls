@@ -14,11 +14,15 @@ This document provides a comprehensive reference for implementing AnyTLS v2 serv
 4. [Command Types Reference](#command-types-reference)
 5. [Padding and Obfuscation](#padding-and-obfuscation)
 6. [Stream Multiplexing](#stream-multiplexing)
-7. [Server Implementation Guide](#server-implementation-guide)
-8. [Protocol Constants](#protocol-constants)
-9. [Version Negotiation](#version-negotiation)
-10. [Error Handling](#error-handling)
-11. [Debugging Checklist](#debugging-checklist)
+7. [UDP over TCP (UoT)](#udp-over-tcp-uot)
+8. [Server Implementation Guide](#server-implementation-guide)
+9. [ngx_anytls Implementation Notes](#ngx_anytls-implementation-notes)
+10. [Protocol Constants](#protocol-constants)
+11. [Version Negotiation](#version-negotiation)
+12. [Error Handling](#error-handling)
+13. [Debugging Checklist](#debugging-checklist)
+14. [Reference Implementation Locations](#reference-implementation-locations)
+15. [Quick Reference Card](#quick-reference-card)
 
 ---
 
@@ -85,18 +89,30 @@ hash = SHA256(password)            // 32 bytes
 // 1. Read into buffer (may contain more than auth data)
 buffer_read_from_connection();
 
-// 2. Extract and verify hash
+// 2. Extract hash and compare against the configured user set
 uint8_t received_hash[32];
 buffer_read_bytes(received_hash, 32);
 
-uint8_t expected_hash[32];
-SHA256((uint8_t*)password, strlen(password), expected_hash);
+// 2a. Constant-time set comparison: walk EVERY configured user's
+// hash before deciding, so the number/position of users is not
+// leaked through timing.  No early exit on a match.
+int matched = 0;
+const char *matched_name = NULL;
+for (size_t i = 0; i < user_count; i++) {
+    if (constant_time_eq(received_hash, users[i].hash, 32)) {
+        if (!matched_name) matched_name = users[i].name;
+        matched = 1;
+    }
+}
 
-if (memcmp(received_hash, expected_hash, 32) != 0) {
-    // Authentication failed - fallback or reject
+if (!matched) {
+    // Authentication failed - replay buffered plaintext to the
+    // configured fallback upstream (anti-detection), or close if
+    // no fallback is configured.
     fallback_connection();
     return;
 }
+// The matched user name is recorded on the connection (logs/accounting).
 
 // 3. Read padding0 length (Big-Endian!)
 uint16_t padding0_len = (buffer[0] << 8) | buffer[1];
@@ -108,14 +124,31 @@ buffer_skip(padding0_len);
 // 5. Now ready to read frames
 ```
 
+**Multi-user authentication:**
+- The server may be configured with up to 64 named users, each with an
+  independent password (`anytls_user <name> <password>;` in nginx).
+- The client still sends only the 32-byte SHA-256 hash of its password;
+  the username is never sent on the wire.
+- The server compares the received hash against the whole configured set
+  in constant time (no early exit), so user count and match position are
+  not observable through timing.
+- Once the hash matches, the match is cached for the connection: while
+  waiting for a large auth padding (up to 65535 bytes) delivered in slow
+  chunks, the user set is not rescanned on every chunk (CPU amplification
+  guard).  This leaks nothing, because only the sender of a valid hash
+  observes the match.
+- Config-time validation rejects duplicate user names and duplicate
+  password hashes (a shared hash would make "which name" ambiguous).
+
 **Default padding0 length:** 30 bytes (from padding scheme `0=30-30`)
 
 **Security Notes:**
 - Password is NEVER sent in plaintext
 - Only SHA256 hash is transmitted
-- If hash doesn't match, server may fallback by transparently proxying buffered
-  plaintext bytes to configured fallback upstream (anti-detection)
-- No error message sent to client on auth failure
+- If no hash matches, the server transparently replays the buffered
+  plaintext bytes to the configured fallback upstream (anti-detection);
+  `anytls_fallback_proxy_protocol on` prepends a PROXY protocol header
+- No error message is sent to the client on auth failure
 
 ---
 
@@ -700,6 +733,10 @@ void calculate_padding_md5(const char *scheme_data, size_t len,
 ```
 
 **IMPORTANT:** Use raw bytes of scheme file, not parsed structure.
+The scheme bytes must NOT have a trailing newline: the built-in scheme is
+stored without a final `\n`, and its MD5 is what the reference client
+ships as `padding-md5`.  A trailing newline changes the digest and makes
+clients request an `CMD_UPDATE_PADDING` on every new session.
 
 ### Example: Packet 2 Breakdown
 
@@ -903,6 +940,71 @@ void on_stream_close(stream_t *stream) {
 
 ---
 
+## UDP over TCP (UoT)
+
+UDP traffic is carried as datagrams inside a regular AnyTLS stream.  The
+stream is opened like any TCP stream, then its payload is interpreted as
+UDP datagrams.
+
+### Opening a UoT Stream (v2)
+
+1. Client sends `CMD_SYN` for a new stream id.
+2. Client sends the destination of the first `CMD_PSH` as a SOCKS5
+   address whose host is the marker domain `sp.v2.udp-over-tcp.arpa`
+   (port is ignored, conventionally 443).  The server recognizes the
+   marker, answers `CMD_SYNACK`, and switches the stream to UoT mode.
+3. The client then sends its first payload:
+
+```
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  mode  | SOCKS5 addr    |   mode: 0 = packet, 1 = connect
++-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+- `mode = 1` (**connect**): the following SOCKS5 address is the fixed UDP
+  peer.  Subsequent payload is a sequence of datagrams, each
+  `[2-byte BE length][datagram]`.  Responses are sent the same way
+  (`[2-byte BE length][datagram]`, no address).
+- `mode = 0` (**packet**): the following SOCKS5 address is the default
+  peer, but every datagram carries its own address.  Responses are full
+  UoT packets (address included).
+
+### Opening a UoT Stream (v1)
+
+Same as v2, but the marker domain is `sp.udp-over-tcp.arpa` and there is
+no mode byte: payload starts directly with UoT packets.
+
+### UoT Packet Format
+
+```
+ 0      1                     N           N+1      N+2            N+2+P
++------+---------------------+-----------+--------+----------------------+
+| atyp |     address         |   plen    |       payload (plen)         |
++------+---------------------+-----------+--------+----------------------+
+```
+
+- `atyp`: **1 byte, DIFFERENT from SOCKS5** — `0` = IPv4, `1` = IPv6,
+  `2` = domain.  (SOCKS5 uses 1/3/4; UoT packets use 0/1/2.)
+- `address`: IPv4 = 4 bytes + 2-byte BE port; IPv6 = 16 bytes + 2-byte BE
+  port; domain = 1-byte length + name + 2-byte BE port.
+- `plen`: 2-byte Big-Endian datagram payload length.
+- `payload`: the UDP datagram (plen bytes).
+
+### Server Behavior
+
+- The server opens a real UDP socket per UoT stream, sends each datagram
+  to the resolved peer, and echoes received datagrams back as UoT
+  packets (connect mode: length-prefixed, no address).
+- Domain peers are resolved asynchronously; datagrams for a domain that
+  is still resolving are queued (bounded by `anytls_uot_pending_packets`
+  and `anytls_uot_pending_bytes`) and flushed on resolution.
+- A resolution failure drops only the packets of the failed domain.
+- Idle UoT streams are reaped by `anytls_uot_idle_timeout`.
+
+---
+
 ## Server Implementation Guide
 
 ### High-Level Flow
@@ -990,6 +1092,54 @@ void session_run(session_t *session) {
 5. **Version Check:** Send CMD_SYNACK only to v2 clients
 6. **Padding Counter:** Track per-session, starts after authentication
 7. **Error Handling:** Send CMD_ALERT before closing session
+
+---
+
+## ngx_anytls Implementation Notes
+
+### TLS Record Alignment (fingerprint hardening)
+
+Server-to-client data (non-UoT streams) is capped at `16384 - 7 = 16377`
+bytes per `CMD_PSH`: a frame header plus 16377 data bytes fits exactly one
+TLS 1.2 record (16384 bytes).  Without the cap, a 16384-byte payload
+would produce a final 28-byte residual record (5-byte header + 7-byte
+frame header + 16-byte AEAD tag) that is a stable traffic fingerprint.
+With the cap, payload sizes land exactly on record boundaries.
+
+### Handshake Control Frames
+
+`CMD_SERVER_SETTINGS` (after a v2 `CMD_SETTINGS`) and `CMD_SYNACK` (after
+a stream open) are sent as standalone frames as the protocol requires;
+they are never coalesced with data frames.  A v2 client waits up to 3
+seconds for `CMD_SYNACK`; the server answers as soon as the outbound
+connection result is known.
+
+### Server-Side Directives (nginx stream)
+
+| Directive | Default | Purpose |
+|---|---|---|
+| `anytls on` | off | enable the module on a stream server |
+| `anytls_user <name> <password>` | — | named user credential, repeatable up to 64; requires `on` |
+| `anytls_fallback <addr>` | — | fallback upstream for failed auth (replay + optional PROXY) |
+| `anytls_fallback_proxy_protocol` | off | prepend PROXY header on fallback |
+| `anytls_reject_plain_http` | on | answer plaintext HTTP probes with nginx 497/400/405 pages |
+| `anytls_padding <file>` | built-in | padding scheme; file or built-in (no trailing newline) |
+| `anytls_handshake_timeout` | 60s | max time from connect to auth completion |
+| `anytls_upstream_connect_timeout` | 5s | outbound connect timeout |
+| `anytls_fallback_connect_timeout` | 60s | fallback upstream connect timeout |
+| `anytls_write_timeout` | 60s | control-frame write timeout |
+| `anytls_uot_idle_timeout` | 300s | reap idle UoT streams |
+| `anytls_max_streams` | 1024 | concurrent streams per session |
+| `anytls_buffer_size` | 65535 | stream read buffer |
+| `anytls_max_pending_output` / `input` | 8M / 8M | per-connection backlog budgets |
+
+### Authentication Timing
+
+- Hash match is cached per connection (`auth_hash_matched`), so a large
+  auth padding (up to 65535 bytes) dribbled in slow chunks does not
+  rescan the user set on every chunk.
+- Fallback decisions are made only after the full 34-byte auth prefix
+  (hash + padding0 length) is available.
 
 ---
 
@@ -1088,27 +1238,42 @@ if (session->peer_version >= 2) {
 ### Authentication Errors
 
 **Failure Modes:**
-- Wrong password hash
+- Hash matches no configured user
 - Missing padding0
 - Truncated authentication packet
 
-**Recommended Response:**
+**Recommended Response (ngx_anytls):**
 ```c
-if (!verify_password(hash)) {
-    // Option 1: Pretend to be HTTP server (anti-detection)
-    const char *http_response =
-        "HTTP/1.1 400 Bad Request\r\n"
-        "Content-Length: 0\r\n"
-        "\r\n";
-    SSL_write(ssl, http_response, strlen(http_response));
-    SSL_shutdown(ssl);
-    return;
-
-    // Option 2: Silent close
-    SSL_shutdown(ssl);
+if (!matched) {
+    // Transparent fallback: replay the buffered plaintext bytes to the
+    // configured fallback upstream (anti-detection).  With
+    // anytls_fallback_proxy_protocol on, a PROXY header precedes the
+    // replayed bytes.  If no fallback is configured, close silently.
+    fallback_connection(replay = auth_bytes);
     return;
 }
 ```
+
+### Plaintext HTTP Probing (reject_plain_http)
+
+A plaintext HTTP request sent to the TLS port (a common anti-detection
+probe) is answered with the same pages a real nginx HTTPS server would
+produce.  ngx_anytls registers on the SSL PREREAD phase and peeks without
+consuming (up to 32 KB):
+
+- `GET`/`POST`/`PUT`/`DELETE`/`OPTIONS`/`PATCH` with a complete request
+  line and (for HTTP/1.1) a `Host` header → the **497** "plain HTTP
+  request was sent to HTTPS port" page, byte-identical to nginx.
+  HTTP/1.0 requests get the 497 page without a `Host` header.
+- `CONNECT`/`TRACE` → **405** (after the same `Host` check; HTTP/1.1
+  without `Host` gets 400).
+- Everything else (HTTP/1.1 without `Host`, `HEAD`, HTTP/0.9, SSH/SMTP
+  banners, malformed input) → the default **400** page.
+- Input shorter than 7 bytes gets no answer (connection times out),
+  matching nginx.
+
+A normal AnyTLS client is unaffected: the TLS session proceeds to
+authentication as usual.
 
 ### Protocol Errors
 
@@ -1182,11 +1347,14 @@ if (!wait_for_synack(stream, 3000)) {
 
 ### Authentication Phase
 
-- [ ] SHA256 hash calculation matches Go implementation
+- [ ] SHA256 hash calculation matches the reference client
 - [ ] Password is UTF-8 encoded before hashing
 - [ ] Hash comparison uses constant-time comparison
+- [ ] Multi-user set comparison walks every configured user (no early exit)
+- [ ] Auth hash match is cached per connection (padding wait does not rescan)
 - [ ] Padding0 length is Big-Endian uint16
 - [ ] Padding0 data is correctly skipped
+- [ ] Fallback replays buffered plaintext to the configured upstream
 - [ ] Fallback behavior doesn't leak authentication failure
 
 ### Frame Handling
@@ -1236,6 +1404,25 @@ if (!wait_for_synack(stream, 3000)) {
 - [ ] Stream IDs don't collide
 - [ ] Client generates monotonically increasing IDs
 - [ ] Server uses client-provided IDs only
+
+### UDP over TCP (UoT)
+
+- [ ] Marker domain `sp.v2.udp-over-tcp.arpa` opens a UoT stream
+- [ ] v2 mode byte (0 = packet, 1 = connect) parsed before the address
+- [ ] UoT packet atyp (0/1/2) is distinct from SOCKS5 atyp (1/3/4)
+- [ ] Datagram length is Big-Endian uint16
+- [ ] Connect mode responses are length-prefixed without address
+- [ ] Packet mode responses carry the full address
+- [ ] Domain peers resolved asynchronously; pending queue bounded
+- [ ] Idle UoT streams reaped by timer
+
+### Plaintext Rejection
+
+- [ ] Valid HTTP/1.1 request with Host gets the 497 page
+- [ ] HTTP/1.0 without Host gets the 497 page
+- [ ] CONNECT/TRACE get 405 after the Host check
+- [ ] Everything else gets 400; input < 7 bytes gets no answer
+- [ ] AnyTLS clients are unaffected (TLS proceeds to auth)
 
 ### Error Handling
 
@@ -1305,6 +1492,16 @@ if (!wait_for_synack(stream, 3000)) {
 +-------------------------------+-------+---------------+
 |      SHA256(password)         | len16 |   padding0    |
 +-------------------------------+-------+---------------+
+```
+The server compares the hash against its configured user set in
+constant time (multi-user supported, up to 64 users).
+
+### UoT Stream Open (v2)
+```
+first PSH: SOCKS5 addr(sp.v2.udp-over-tcp.arpa:443)
+first payload: [mode 0|1][SOCKS5 addr]   mode 1 = connect, 0 = packet
+connect data:  [len16][datagram]...
+packet data:   [uot-atyp 0|1|2][addr][len16][datagram]...
 ```
 
 ### Command Quick Reference
