@@ -246,6 +246,31 @@ See [`docs/protocol.md`](./docs/protocol.md) for the AnyTLS v2 protocol specific
 
 ## Logging Notes
 
+### Variables
+
+The module exposes session metadata as stream variables, usable in
+stream `log_format` / `access_log`:
+
+| Variable | Value |
+|---|---|
+| `$anytls_user` | authenticated user name; `-` when not authenticated |
+| `$anytls_version` | client AnyTLS version after SETTINGS; `-` when unavailable |
+| `$anytls_auth` | auth result (`ok`, `fallback`, `timeout`, `error`); `-` when unavailable |
+
+Example:
+
+```nginx
+stream {
+    log_format atls '$remote_addr $anytls_user $anytls_version $anytls_auth';
+
+    server {
+        listen 127.0.0.1:8443 ssl;
+        access_log /var/log/nginx/atls.log atls;
+        # ...
+    }
+}
+```
+
 - `status=200` (`NGX_STREAM_OK`) means the stream session ended normally. Control-only sessions (no business stream) also report `200` with empty `$upstream_addr`.
 - `$upstream_addr` is populated when an upstream state entry is opened — normal AnyTLS TCP/UoT paths record it on stream open; auth-failed fallback also records it.
 - Session teardown logs include upstream buffer budget diagnostics.

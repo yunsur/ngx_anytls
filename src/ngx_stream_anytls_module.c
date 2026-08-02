@@ -8,6 +8,7 @@
 #include "ngx_anytls_reject_plain_http.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_connection_private.h"
+#include "ngx_anytls_variables.h"
 
 static void *ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf);
 static char *ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent,
@@ -154,7 +155,7 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
 };
 
 static ngx_stream_module_t ngx_stream_anytls_module_ctx = {
-    NULL,                                  /* preconfiguration */
+    ngx_anytls_variables_preconfiguration,  /* preconfiguration */
     ngx_stream_anytls_postconfiguration,   /* postconfiguration */
     NULL,                                  /* create main configuration */
     NULL,                                  /* init main configuration */

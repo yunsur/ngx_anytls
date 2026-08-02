@@ -34,6 +34,15 @@ typedef struct {
 } ngx_anytls_user_t;
 
 
+typedef enum {
+    NGX_ANYTLS_AUTH_STATUS_UNSET = 0,
+    NGX_ANYTLS_AUTH_STATUS_OK,
+    NGX_ANYTLS_AUTH_STATUS_FALLBACK,
+    NGX_ANYTLS_AUTH_STATUS_TIMEOUT,
+    NGX_ANYTLS_AUTH_STATUS_ERROR
+} ngx_anytls_auth_status_e;
+
+
 typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_flag_t               enabled;
     ngx_flag_t               reject_plain_http;
@@ -113,6 +122,9 @@ struct ngx_anytls_connection_s {
 
     ngx_anytls_session_core_t  session_core;
     ngx_str_t                 user_name;
+    ngx_str_t                 version_text;
+    u_char                    version_buf[NGX_INT_T_LEN];
+    ngx_anytls_auth_status_e  auth_status;
     unsigned                 authenticated:1;
     /* auth hash matched: cached so waiting for a large auth padding
      * does not rescan the user list on every chunk */

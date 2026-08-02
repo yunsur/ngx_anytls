@@ -20,6 +20,7 @@
 static void ngx_anytls_send_http_400(ngx_anytls_connection_t *ac);
 static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
 static ngx_uint_t ngx_anytls_input_blocked(ngx_anytls_connection_t *ac);
+static void ngx_anytls_cache_peer_version(ngx_anytls_connection_t *ac);
 
 
 ngx_int_t
@@ -50,6 +51,7 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
         }
 
         if (auth_result.result == NGX_ANYTLS_AUTH_FALLBACK) {
+            ac->auth_status = NGX_ANYTLS_AUTH_STATUS_FALLBACK;
             if (ac->conf->fallback == NULL) {
                 ngx_anytls_send_http_400(ac);
                 return NGX_ERROR;
@@ -62,8 +64,11 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             return NGX_OK;
         }
         if (auth_result.result != NGX_ANYTLS_AUTH_OK) {
+            ac->auth_status = NGX_ANYTLS_AUTH_STATUS_ERROR;
             return NGX_ERROR;
         }
+
+        ac->auth_status = NGX_ANYTLS_AUTH_STATUS_OK;
     }
 
     if (len == 0) {
@@ -109,6 +114,10 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             return rc;
         }
 
+        if (frame.cmd == NGX_ANYTLS_CMD_SETTINGS) {
+            ngx_anytls_cache_peer_version(ac);
+        }
+
         pos += consumed;
 
         if (ac->input_paused) {
@@ -123,6 +132,22 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     }
 
     return NGX_OK;
+}
+
+
+static void
+ngx_anytls_cache_peer_version(ngx_anytls_connection_t *ac)
+{
+    u_char *last;
+
+    if (!ac->session_core.settings_received) {
+        return;
+    }
+
+    last = ngx_sprintf(ac->version_buf, "%ui",
+                       ac->session_core.peer_version);
+    ac->version_text.data = ac->version_buf;
+    ac->version_text.len = (size_t) (last - ac->version_buf);
 }
 
 
@@ -283,6 +308,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     if (c->read->timedout && ac->state == NGX_ANYTLS_CONN_AUTH) {
         ngx_log_error(NGX_LOG_INFO, c->log, 0,
                       "anytls: handshake timed out, closing connection");
+        ac->auth_status = NGX_ANYTLS_AUTH_STATUS_TIMEOUT;
         ngx_anytls_finalize(ac);
         return;
     }

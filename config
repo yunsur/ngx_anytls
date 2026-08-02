@@ -20,6 +20,7 @@ _NGX_ADDON_SRCS=" \
     $ngx_addon_dir/src/ngx_anytls_session_actions.c \
     $ngx_addon_dir/src/ngx_anytls_session_core.c \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.c \
+    $ngx_addon_dir/src/ngx_anytls_variables.c \
 "
 
 _NGX_ADDON_DEPS=" \
@@ -49,6 +50,7 @@ _NGX_ADDON_DEPS=" \
     $ngx_addon_dir/src/ngx_anytls_mux_events.h \
     $ngx_addon_dir/src/ngx_anytls_fallback_private.h \
     $ngx_addon_dir/src/ngx_anytls_transport_ngx.h \
+    $ngx_addon_dir/src/ngx_anytls_variables.h \
 "
 
 CORE_LIBS="$CORE_LIBS -lcrypto"
