@@ -764,7 +764,8 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
                 ? st->udp : st->upstream;
 
         if (c == NULL
-            || st->state != NGX_ANYTLS_STREAM_CONNECTED)
+            || (st->state != NGX_ANYTLS_STREAM_CONNECTED
+                && st->state != NGX_ANYTLS_STREAM_HALF_CLOSED))
         {
             ngx_anytls_upstream_mux_unblock_read(ac, st);
             continue;

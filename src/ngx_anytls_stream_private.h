@@ -98,6 +98,10 @@ struct ngx_anytls_stream_s {
      * uot_close() releases it.  Guards against leaking the slot when a
      * UoT stream closes before creating its UDP socket. */
     unsigned                 uot_counted:1;
+    /* accumulator for a first-PSH whose SOCKS address arrived split
+     * across frames; parsed once complete, then freed */
+    u_char                  *first_psh_acc;
+    size_t                   first_psh_acc_len;
 };
 
 #endif

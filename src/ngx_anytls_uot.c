@@ -643,8 +643,9 @@ ngx_anytls_uot_client_payload(ngx_anytls_stream_t *st, u_char *data, size_t len)
                 break;
             }
 
-            if (plen
-                && ngx_anytls_uot_send_payload(st, &st->target, p + 2, plen)
+            /* forward even zero-length datagrams (a UDP datagram with an
+             * empty payload is legal and must reach the peer) */
+            if (ngx_anytls_uot_send_payload(st, &st->target, p + 2, plen)
                    != NGX_OK)
             {
                 return NGX_ERROR;

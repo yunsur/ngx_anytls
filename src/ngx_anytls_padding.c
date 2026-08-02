@@ -2,6 +2,7 @@
 #include <ngx_core.h>
 
 #include "ngx_anytls_padding.h"
+#include "ngx_anytls_protocol.h"
 #include "ngx_anytls_connection_private.h"
 
 ngx_int_t
@@ -98,7 +99,10 @@ ngx_anytls_padding_load(ngx_conf_t *cf, ngx_stream_anytls_srv_conf_t *conf)
     }
 
     fsize = ngx_file_size(&fi);
-    if (fsize <= 0 || fsize > NGX_ANYTLS_PADDING_MAX_SIZE) {
+    /* the scheme is sent to clients as a CMD_UPDATE_PADDING frame, whose
+     * length field is uint16: a larger file would overflow the frame and
+     * break every session */
+    if (fsize <= 0 || fsize > NGX_ANYTLS_MAX_FRAME_DATA) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
                            "anytls: padding file \"%s\" size %O is invalid",
                            conf->padding_file.data, fsize);

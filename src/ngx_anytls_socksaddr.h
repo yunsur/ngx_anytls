@@ -5,6 +5,10 @@
 #include <ngx_core.h>
 #include <ngx_event_connect.h>
 
+/* largest legal SOCKS address: domain (1 ATYP + 1 len + 255 host + 2
+ * port = 259) beats IPv6 (1 + 16 + 2 = 19) */
+#define NGX_ANYTLS_MAX_SOCKS_ADDR_LEN  259
+
 typedef enum {
     NGX_ANYTLS_ADDR_TCP = 0,
     NGX_ANYTLS_ADDR_UOT_V1,

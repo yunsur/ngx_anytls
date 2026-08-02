@@ -93,12 +93,12 @@ ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
         ac->auth_hash_matched = 1;
     }
 
+    /* padding length is a uint16, so need = 34 + padding_len is at most
+     * 34 + 65535 = sizeof(ac->auth): the buffer can always hold it, and
+     * a too-short buffer simply keeps waiting (AUTH_MORE) below.  No
+     * overflow guard is needed here. */
     ac->auth_padding_len = (uint16_t) ((ac->auth[32] << 8) | ac->auth[33]);
     need = 34 + ac->auth_padding_len;
-    if (need > sizeof(ac->auth)) {
-        result.result = NGX_ANYTLS_AUTH_ERROR;
-        return result;
-    }
 
     if (ac->auth_len < need) {
         n = ngx_min(len, need - ac->auth_len);

@@ -24,7 +24,7 @@ my $nginx = $Test::Nginx::NGINX;
 BAIL_OUT("no $nginx binary found") unless -x $nginx;
 my $testdir = tempdir(CLEANUP => 1);
 
-plan(tests => 3);
+plan(tests => 4);
 
 # runs `nginx -t` against a config in the temp dir and checks the
 # expected config-time error appears on stderr
@@ -66,3 +66,13 @@ ok(config_fails_with('empty_name.conf',
         'anytls_user "" pass;',
         'name must not be empty'),
     'empty anytls_user name rejected at config time');
+
+# padding file larger than the uint16 UPDATE_PADDING frame limit
+my $big_padding = "$testdir/big.padding";
+open my $pf, '>', $big_padding or die "open big.padding: $!";
+print $pf ("0=100-200\n" x 10000);
+close $pf;
+ok(config_fails_with('big_padding.conf',
+        "anytls_user test pass;\n        anytls_padding $big_padding;",
+        'size .* is invalid'),
+    'padding file over the frame limit rejected at config time');
