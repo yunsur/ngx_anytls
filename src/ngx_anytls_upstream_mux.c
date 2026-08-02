@@ -12,6 +12,8 @@
 #include "ngx_anytls_uot.h"
 #include "ngx_anytls_connection_private.h"
 
+#define NGX_ANYTLS_TLS_RECORD_SIZE  16384
+
 
 /* Per-cycle scheduling budget (internal to upstream mux).
  * on_read_ready / on_write_ready initialise one of these and pass
@@ -311,6 +313,18 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
         size = ac->conf->buffer_size;
         if (size > NGX_ANYTLS_MAX_FRAME_DATA) {
             size = NGX_ANYTLS_MAX_FRAME_DATA;
+        }
+
+        /* Align PSH payloads so the 7-byte frame header plus payload is
+         * exactly one TLS 1.2 record (16384).  Otherwise a payload of N
+         * bytes leaves a 7-byte fragment that OpenSSL sends as a trailing
+         * small TLS record (e.g. 28B), which fingerprints AnyTLS vs plain
+         * nginx HTTPS traffic.  Not applied to UoT datagram branches,
+         * which must preserve per-datagram framing. */
+        if (st->upstream_type != NGX_ANYTLS_UPSTREAM_UOT
+            && size > NGX_ANYTLS_TLS_RECORD_SIZE - NGX_ANYTLS_FRAME_HEADER_LEN)
+        {
+            size = NGX_ANYTLS_TLS_RECORD_SIZE - NGX_ANYTLS_FRAME_HEADER_LEN;
         }
 
         sched->visited_streams++;
