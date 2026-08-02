@@ -126,6 +126,32 @@ test_max_padding_waits_for_data(void)
 }
 
 static void
+test_padding_split_keeps_match(void)
+{
+    u_char data[34 + 100];
+    ngx_anytls_auth_step_t r;
+
+    /* valid hash + large padding delivered in slow chunks: after the
+     * hash matches, the user scan is cached, and the padding wait must
+     * still accumulate and authenticate */
+    memcpy(data, fuzz_password_hash, 32);
+    data[32] = 0;
+    data[33] = 100;
+    memset(data + 34, 'p', 100);
+
+    r = ngx_anytls_auth_process(ac, data, 34);
+    ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_MORE);
+
+    r = ngx_anytls_auth_process(ac, data + 34, 60);
+    ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_MORE);
+
+    r = ngx_anytls_auth_process(ac, data + 94, 40);
+    ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_OK);
+    ASSERT_EQ((int) ac->user_name.len, 8);
+    ASSERT_MEM(ac->user_name.data, "test-user", 8);
+}
+
+static void
 run_all_tests(void)
 {
     set_up();   test_ok_no_padding();
@@ -134,6 +160,7 @@ run_all_tests(void)
     set_up();   test_split_accumulation();
     set_up();   test_wrong_hash_fallback();
     set_up();   test_max_padding_waits_for_data();
+    set_up();   test_padding_split_keeps_match();
 
     ngx_destroy_pool(pool);
 }
