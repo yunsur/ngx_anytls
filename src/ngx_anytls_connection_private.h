@@ -61,6 +61,7 @@ typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_msec_t               handshake_timeout;
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
+    ngx_uint_t               max_uot_streams;
     size_t                   max_pending_output;
     size_t                   max_pending_input;
     ngx_resolver_t          *resolver;
@@ -86,6 +87,7 @@ struct ngx_anytls_connection_s {
     ngx_queue_t              blocked_upstream_reads;
     ngx_uint_t               active_streams;
     ngx_uint_t               blocked_input_streams;
+    ngx_uint_t               uot_streams;
 
     ngx_anytls_out_frame_t  *control_out;
     ngx_anytls_out_frame_t **control_out_last;

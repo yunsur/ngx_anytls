@@ -116,6 +116,21 @@ Per-stream read buffer size for upstream data. Controls how many bytes are read 
 Maximum concurrent multiplexed streams per AnyTLS connection.
 Hash table size scales dynamically to 2x max_streams.
 
+### `anytls_max_uot_streams`
+
+- **Syntax:** `anytls_max_uot_streams <number>;`
+- **Default:** `64`
+- **Context:** `stream`, `server`
+
+Maximum concurrent UDP-over-TCP (UoT) streams per AnyTLS connection.
+Each UoT stream owns a UDP socket and up to 64 KB of receive buffer, so
+without a dedicated cap a client could pin tens of MB and hundreds of
+file descriptors per connection (UDP sockets also count against
+`worker_connections`). Streams beyond the cap are rejected and closed;
+v2 clients are notified with a non-empty SYNACK (close-with-error), v1
+clients see the stream closed. The session stays alive. Independent of
+`anytls_max_streams`, which caps the total number of streams (TCP + UoT).
+
 ### `anytls_max_pending_output`
 
 - **Syntax:** `anytls_max_pending_output <size>;`

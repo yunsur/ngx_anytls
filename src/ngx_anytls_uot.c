@@ -554,6 +554,15 @@ ngx_anytls_uot_process_pending(ngx_anytls_stream_t *st)
 ngx_int_t
 ngx_anytls_uot_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
+    /* per-connection UoT stream cap: each stream owns a UDP socket and
+     * up to 64 KB of recv buffer, so a client opening max_streams UoT
+     * streams could otherwise pin tens of MB per connection */
+    if (st->ac->uot_streams >= st->ac->conf->max_uot_streams) {
+        return NGX_ERROR;
+    }
+    st->ac->uot_streams++;
+    st->uot_counted = 1;
+
     st->upstream_type = NGX_ANYTLS_UPSTREAM_UOT;
     st->uot_mode = addr->mode;
     st->state = NGX_ANYTLS_STREAM_CONNECTED;
@@ -883,6 +892,13 @@ ngx_anytls_udp_write_handler(ngx_event_t *wev)
 void
 ngx_anytls_uot_close(ngx_anytls_stream_t *st)
 {
+    if (st->uot_counted) {
+        if (st->ac->uot_streams) {
+            st->ac->uot_streams--;
+        }
+        st->uot_counted = 0;
+    }
+
     ngx_anytls_resolver_cancel(st);
     ngx_anytls_uot_clear_pending(st);
 

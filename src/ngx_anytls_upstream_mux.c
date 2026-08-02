@@ -142,7 +142,13 @@ ngx_anytls_upstream_mux_handle_first_psh(ngx_anytls_connection_t *ac,
 
     /* UoT */
     if (ngx_anytls_uot_open(st, addr) != NGX_OK) {
-        return NGX_ERROR;
+        /* stream-level rejection (e.g. anytls_max_uot_streams exceeded):
+         * notify the client with a SYNACK error and close the stream;
+         * the session stays alive for the other streams */
+        (void) ngx_anytls_client_mux_send_synack(st, (u_char *) "uot-limit",
+                                                 sizeof("uot-limit") - 1);
+        ngx_anytls_stream_close(st);
+        return NGX_OK;
     }
     if (payload_len) {
         return ngx_anytls_uot_client_payload(st, payload, payload_len);

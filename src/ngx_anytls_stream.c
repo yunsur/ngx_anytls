@@ -297,7 +297,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
             ngx_anytls_transport_close(st->upstream);
             st->upstream = NULL;
         }
-        if (st->udp) {
+        if (st->uot_counted) {
             ngx_anytls_uot_close(st);
         }
 
@@ -352,7 +352,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_anytls_transport_close(st->upstream);
         st->upstream = NULL;
     }
-    if (st->udp) {
+    if (st->uot_counted) {
         ngx_anytls_uot_close(st);
     }
     while (!ngx_queue_empty(&st->uot_pending)) {

@@ -94,6 +94,10 @@ struct ngx_anytls_stream_s {
     ngx_event_t             *uot_timer;
     ngx_msec_t               last_activity;
     unsigned                 uot_request_parsed:1;
+    /* set when uot_open() took the per-connection UoT slot; cleared when
+     * uot_close() releases it.  Guards against leaking the slot when a
+     * UoT stream closes before creating its UDP socket. */
+    unsigned                 uot_counted:1;
 };
 
 #endif
