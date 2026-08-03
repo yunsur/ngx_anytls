@@ -258,6 +258,33 @@ ngx_anytls_upstream_mux_read_blocked(ngx_anytls_stream_t *st)
 }
 
 
+/* Per-stream read size used for backpressure accounting.  Must stay in
+ * sync with drain_reads(): buffer_size clamped to the protocol maximum
+ * and, for TCP streams, aligned so the 7-byte frame header plus payload
+ * is exactly one TLS 1.2 record (16384).  process_blocked() uses the
+ * same size when deciding whether a blocked upstream read can resume;
+ * a mismatched size there would make the resume check require more
+ * headroom than the block check, leaving the stream blocked forever. */
+static size_t
+ngx_anytls_upstream_mux_read_size(ngx_anytls_stream_t *st)
+{
+    size_t size;
+
+    size = st->ac->conf->buffer_size;
+    if (size > NGX_ANYTLS_MAX_FRAME_DATA) {
+        size = NGX_ANYTLS_MAX_FRAME_DATA;
+    }
+
+    if (st->upstream_type != NGX_ANYTLS_UPSTREAM_UOT
+        && size > NGX_ANYTLS_TLS_RECORD_SIZE - NGX_ANYTLS_FRAME_HEADER_LEN)
+    {
+        size = NGX_ANYTLS_TLS_RECORD_SIZE - NGX_ANYTLS_FRAME_HEADER_LEN;
+    }
+
+    return size;
+}
+
+
 static ngx_inline ngx_int_t
 ngx_anytls_upstream_mux_stream_readable(ngx_anytls_stream_t *st)
 {
@@ -316,22 +343,7 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
         }
 
         c = ngx_anytls_upstream_mux_read_conn(st);
-        size = ac->conf->buffer_size;
-        if (size > NGX_ANYTLS_MAX_FRAME_DATA) {
-            size = NGX_ANYTLS_MAX_FRAME_DATA;
-        }
-
-        /* Align PSH payloads so the 7-byte frame header plus payload is
-         * exactly one TLS 1.2 record (16384).  Otherwise a payload of N
-         * bytes leaves a 7-byte fragment that OpenSSL sends as a trailing
-         * small TLS record (e.g. 28B), which fingerprints AnyTLS vs plain
-         * nginx HTTPS traffic.  Not applied to UoT datagram branches,
-         * which must preserve per-datagram framing. */
-        if (st->upstream_type != NGX_ANYTLS_UPSTREAM_UOT
-            && size > NGX_ANYTLS_TLS_RECORD_SIZE - NGX_ANYTLS_FRAME_HEADER_LEN)
-        {
-            size = NGX_ANYTLS_TLS_RECORD_SIZE - NGX_ANYTLS_FRAME_HEADER_LEN;
-        }
+        size = ngx_anytls_upstream_mux_read_size(st);
 
         sched->visited_streams++;
 
@@ -775,8 +787,7 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
             return resumed;
         }
 
-        size = ngx_min(ac->conf->buffer_size,
-                       (size_t) NGX_ANYTLS_MAX_FRAME_DATA);
+        size = ngx_anytls_upstream_mux_read_size(st);
         if (!ngx_anytls_client_mux_has_room(ac, size)) {
             return resumed;
         }
