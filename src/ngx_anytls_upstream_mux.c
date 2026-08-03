@@ -258,6 +258,46 @@ ngx_anytls_upstream_mux_read_blocked(ngx_anytls_stream_t *st)
 }
 
 
+/* Re-arm the upstream read event as level-triggered after a budget
+ * break.
+ *
+ * The upstream socket's read event starts edge-triggered: on Linux,
+ * ngx_event_connect_peer() registers it with NGX_CLEAR_EVENT (EPOLLET),
+ * and ngx_handle_read_event() would re-add it with NGX_CLEAR_EVENT too.
+ * drain_reads() stops at the per-cycle frame budget even when the socket
+ * still has data buffered; with EPOLLET the kernel will not re-fire
+ * EPOLLIN until the buffer drains and refills, so the leftover data (and
+ * a pending FIN) can sit unread forever.  Deleting and re-adding the
+ * event without the clear flag registers it level-triggered, so the
+ * pending data keeps EPOLLIN firing until it is consumed.
+ *
+ * Note: this mixes a level-triggered event into a clear-event build.
+ * The epoll module processes events generically (EPOLLIN + rev->active
+ * -> handler), and the block/resume paths still re-arm via
+ * ngx_handle_read_event()/ngx_del_event(), which is fine: the next
+ * budget break re-converts.  The upstream write event can transiently
+ * flip the shared epoll entry back to EPOLLET (MOD in ngx_epoll_add_event
+ * adds the flags), but the write is only armed while client data is
+ * pending and is disarmed again on drain, after which the next budget
+ * break restores level-triggered semantics. */
+static ngx_int_t
+ngx_anytls_upstream_mux_requeue_read(ngx_connection_t *c)
+{
+    if (c->read->ready && c->read->active) {
+        if (ngx_del_event(c->read, NGX_READ_EVENT, 0) != NGX_OK) {
+            return NGX_ERROR;
+        }
+        c->read->active = 0;
+        c->read->ready = 0;
+        if (ngx_add_event(c->read, NGX_READ_EVENT, NGX_LEVEL_EVENT) != NGX_OK) {
+            return NGX_ERROR;
+        }
+    }
+
+    return NGX_OK;
+}
+
+
 /* Per-stream read size used for backpressure accounting.  Must stay in
  * sync with drain_reads(): buffer_size clamped to the protocol maximum
  * and, for TCP streams, aligned so the 7-byte frame header plus payload
@@ -365,6 +405,17 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                     ngx_queue_insert_tail(&ac->upstream_mux.read_ready,
                                           &st->upstream_read_queue);
                 }
+
+                /* The upstream read event is edge-triggered on Linux
+                 * (ngx_event_connect_peer uses NGX_CLEAR_EVENT, and
+                 * ngx_handle_read_event re-adds with it too), so the
+                 * kernel will not re-fire EPOLLIN while data remains in
+                 * the socket.  If the budget stopped us with data still
+                 * buffered, re-register the event level-triggered so the
+                 * pending data keeps it firing until consumed. */
+                if (ngx_anytls_upstream_mux_requeue_read(c) != NGX_OK) {
+                    ngx_anytls_stream_close(st);
+                }
                 break;
             }
 
@@ -402,6 +453,11 @@ ngx_anytls_upstream_mux_drain_reads(ngx_anytls_connection_t *ac,
                         ngx_queue_insert_tail(
                             &ac->upstream_mux.read_ready,
                             &st->upstream_read_queue);
+                    }
+                    /* Edge-triggered upstream read: see the frame budget
+                     * break above.  Data may still be buffered. */
+                    if (ngx_anytls_upstream_mux_requeue_read(c) != NGX_OK) {
+                        ngx_anytls_stream_close(st);
                     }
                     break;
                 }
