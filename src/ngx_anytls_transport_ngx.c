@@ -151,6 +151,13 @@ ngx_anytls_transport_open_udp(ngx_log_t *log, ngx_uint_t family)
         return NULL;
     }
 
+    /* ngx_get_connection() memzeros the event objects, so the log
+     * pointers are NULL until set here.  Missing this crashes debug
+     * builds: the epoll module's ngx_log_debug3() guard dereferences
+     * ev->log unconditionally.  Mirrors ngx_event_connect_peer(). */
+    c->read->log = log;
+    c->write->log = log;
+
     if (ngx_add_event(c->read, NGX_READ_EVENT, 0) != NGX_OK) {
         ngx_anytls_transport_close(c);
         return NULL;
