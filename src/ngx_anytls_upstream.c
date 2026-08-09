@@ -415,33 +415,45 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
     }
 
     c = st->upstream;
-    if (c && st->state == NGX_ANYTLS_STREAM_CONNECTED
-        && (st->pending_in == NULL || c->write->ready))
-    {
-        while (len) {
-            n = ngx_anytls_transport_send(c, data, len);
-            if (n == NGX_ERROR || n == 0) {
+    if (c && st->state == NGX_ANYTLS_STREAM_CONNECTED) {
+        if (st->pending_in != NULL && c->write->ready) {
+            /* Backlog exists and the socket is writable: flush the old
+             * pending data first so the new payload follows in order.
+             * Direct-sending past a non-empty pending queue would let
+             * the new prefix overtake the queued bytes. */
+            if (ngx_anytls_upstream_send_pending(st,
+                    NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED, NULL) == NGX_ERROR)
+            {
                 return NGX_ERROR;
             }
-            if (n == NGX_AGAIN) {
-                break;
-            }
-
-            data += n;
-            len -= (size_t) n;
-            ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
-                                                     &st->upstream_state, n);
         }
 
-        if (len == 0) {
-            if (ngx_anytls_transport_disarm_write(c) != NGX_OK) {
+        if (st->pending_in == NULL) {
+            while (len) {
+                n = ngx_anytls_transport_send(c, data, len);
+                if (n == NGX_ERROR || n == 0) {
+                    return NGX_ERROR;
+                }
+                if (n == NGX_AGAIN) {
+                    break;
+                }
+
+                data += n;
+                len -= (size_t) n;
+                ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
+                                                         &st->upstream_state, n);
+            }
+
+            if (len == 0) {
+                if (ngx_anytls_transport_disarm_write(c) != NGX_OK) {
+                    return NGX_ERROR;
+                }
+                return NGX_OK;
+            }
+
+            if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
                 return NGX_ERROR;
             }
-            return NGX_OK;
-        }
-
-        if (ngx_anytls_transport_arm_write(c) != NGX_OK) {
-            return NGX_ERROR;
         }
     }
 
