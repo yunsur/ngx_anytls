@@ -9,7 +9,11 @@ project(ngx_anytls_fuzz C)
 #       -DNGX_SRC=/path/to/nginx-src \
 #       fuzz
 #   cmake --build build-fuzz
-#   ./build-fuzz/fuzz/fuzz_frame_parse fuzz/corpus/frame_parse/ -max_total_time=300
+#   Run raw fuzzing into fuzz/local/ (git-ignored), then merge the
+#   coverage-minimal result back into the committed corpus:
+#     mkdir -p fuzz/local/frame_parse
+#     ./build-fuzz/fuzz/fuzz_frame_parse fuzz/local/frame_parse/ -max_total_time=300
+#     ./build-fuzz/fuzz/fuzz_frame_parse -merge=1 fuzz/corpus/frame_parse fuzz/local/frame_parse
 
 if(NOT CMAKE_C_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "fuzz build requires LLVM Clang (libFuzzer)")

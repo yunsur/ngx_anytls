@@ -5,4 +5,6 @@ build-unit-asan/
 fuzz/build/
 fuzz/corpus/*
 !fuzz/corpus/*/
+fuzz/local/
 tests/c/build/
+build-*
