@@ -157,20 +157,25 @@ ngx_inet_ntop(int family, void *addr, u_char *text, size_t len)
 ngx_int_t
 ngx_atoi(u_char *line, size_t n)
 {
-    ngx_int_t value;
-    ngx_uint_t i;
+    ngx_int_t  value, cutoff, cutlim;
 
     if (n == 0) {
         return NGX_ERROR;
     }
 
-    value = 0;
+    cutoff = NGX_MAX_INT_T_VALUE / 10;
+    cutlim = NGX_MAX_INT_T_VALUE % 10;
 
-    for (i = 0; i < n; i++) {
-        if (line[i] < '0' || line[i] > '9') {
+    for (value = 0; n--; line++) {
+        if (*line < '0' || *line > '9') {
             return NGX_ERROR;
         }
-        value = value * 10 + (line[i] - '0');
+
+        if (value >= cutoff && (value > cutoff || *line - '0' > cutlim)) {
+            return NGX_ERROR;
+        }
+
+        value = value * 10 + (*line - '0');
     }
 
     return value;
