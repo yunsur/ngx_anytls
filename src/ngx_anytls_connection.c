@@ -158,6 +158,14 @@ ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
         ngx_free(cl);
     }
 
+    while (ac->free_read_bufs_large) {
+        ngx_chain_t *cl = ac->free_read_bufs_large;
+        ac->free_read_bufs_large = cl->next;
+        ngx_free(cl->buf->start);
+        ngx_free(cl->buf);
+        ngx_free(cl);
+    }
+
     while (ac->free_pending_bufs) {
         void *next = *(void **) ac->free_pending_bufs;
         ngx_free(ac->free_pending_bufs);

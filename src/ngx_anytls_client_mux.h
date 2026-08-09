@@ -26,7 +26,8 @@ ngx_int_t ngx_anytls_client_mux_queue_ref_frame(ngx_anytls_connection_t *ac,
     u_char *data, size_t len);
 ngx_int_t ngx_anytls_client_mux_queue_chain_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
-    ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload);
+    ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload,
+    ngx_uint_t room_checked);
 ngx_int_t ngx_anytls_client_mux_send_synack(ngx_anytls_stream_t *st,
     u_char *data, size_t len);
 

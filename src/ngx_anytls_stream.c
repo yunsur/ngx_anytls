@@ -107,6 +107,41 @@ ngx_anytls_stream_ht_insert(ngx_anytls_connection_t *ac,
 }
 
 
+static ngx_anytls_stream_t *
+ngx_anytls_stream_alloc(ngx_anytls_connection_t *ac, uint32_t id)
+{
+    ngx_anytls_stream_t *st;
+
+    st = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_stream_t));
+    if (st == NULL) {
+        return NULL;
+    }
+
+    st->pool = NULL;
+    st->ac = ac;
+    st->id = id;
+    st->state = NGX_ANYTLS_STREAM_INIT;
+    st->pending_in_last = &st->pending_in;
+    st->out_last = &st->out;
+    ngx_queue_init(&st->ready_queue);
+    ngx_queue_init(&st->link);
+    ngx_queue_init(&st->upstream_block);
+    ngx_queue_init(&st->upstream_read_queue);
+    ngx_queue_init(&st->upstream_write_queue);
+    ngx_queue_init(&st->connect_queue);
+    ngx_queue_init(&st->closing_queue);
+    ngx_queue_init(&st->uot_pending);
+
+    if (ngx_anytls_stream_ht_insert(ac, st) != NGX_OK) {
+        return NULL;
+    }
+    ngx_queue_insert_tail(&ac->stream_list, &st->link);
+    ac->active_streams++;
+
+    return st;
+}
+
+
 static void
 ngx_anytls_stream_ht_remove(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
@@ -139,69 +174,36 @@ ngx_anytls_stream_find(ngx_anytls_connection_t *ac, uint32_t id)
 }
 
 
-ngx_uint_t
-ngx_anytls_stream_exists(ngx_anytls_connection_t *ac, uint32_t id)
-{
-    return ngx_anytls_stream_ht_find(ac, id) != NULL;
-}
-
-
 ngx_anytls_stream_t *
-ngx_anytls_stream_create(ngx_anytls_connection_t *ac, uint32_t id)
+ngx_anytls_stream_create_if_absent(ngx_anytls_connection_t *ac, uint32_t id,
+    ngx_uint_t *created)
 {
     ngx_anytls_stream_t *st;
 
-    if (ac->active_streams >= ac->conf->max_streams
-        || ngx_anytls_stream_exists(ac, id))
-    {
+    if (created) {
+        *created = 0;
+    }
+
+    /* Duplicate SYNs for logically closed streams still resolve to the
+     * existing table entry.  Reusing an id before close removes it from
+     * the hash is invalid, and creating a second entry would strand it
+     * behind the closed one. */
+    st = ngx_anytls_stream_ht_find(ac, id);
+    if (st != NULL) {
+        return st;
+    }
+
+    if (ac->active_streams >= ac->conf->max_streams) {
         return NULL;
     }
 
-    st = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_stream_t));
-    if (st == NULL) {
-        return NULL;
-    }
+    st = ngx_anytls_stream_alloc(ac, id);
 
-    st->pool = NULL;
-    st->ac = ac;
-    st->id = id;
-    st->state = NGX_ANYTLS_STREAM_INIT;
-    st->pending_in_last = &st->pending_in;
-    st->out_last = &st->out;
-    ngx_queue_init(&st->ready_queue);
-    ngx_queue_init(&st->link);
-    ngx_queue_init(&st->upstream_block);
-    ngx_queue_init(&st->upstream_read_queue);
-    ngx_queue_init(&st->upstream_write_queue);
-    ngx_queue_init(&st->connect_queue);
-    ngx_queue_init(&st->closing_queue);
-    ngx_queue_init(&st->uot_pending);
-
-    if (ngx_anytls_stream_ht_insert(ac, st) != NGX_OK) {
-        return NULL;
+    if (st && created) {
+        *created = 1;
     }
-    ngx_queue_insert_tail(&ac->stream_list, &st->link);
-    ac->active_streams++;
 
     return st;
-}
-
-
-ngx_anytls_stream_t *
-ngx_anytls_stream_resolve(ngx_anytls_connection_t *ac, uint32_t id,
-    ngx_anytls_stream_op_e op)
-{
-    switch (op) {
-    case NGX_ANYTLS_STREAM_OP_CREATE:
-        return ngx_anytls_stream_create(ac, id);
-    case NGX_ANYTLS_STREAM_OP_FIND:
-        return ngx_anytls_stream_find(ac, id);
-    case NGX_ANYTLS_STREAM_OP_EXISTS:
-        return (ngx_anytls_stream_t *) (uintptr_t)
-            ngx_anytls_stream_exists(ac, id);
-    default:
-        return NULL;
-    }
 }
 
 

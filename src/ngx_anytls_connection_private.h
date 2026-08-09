@@ -109,6 +109,7 @@ struct ngx_anytls_connection_s {
     size_t                   pending_input;
 
     ngx_chain_t             *free_read_bufs;
+    ngx_chain_t             *free_read_bufs_large;
     ngx_uint_t               free_read_bufs_count;
     void                    *free_pending_bufs;
     ngx_uint_t               free_pending_bufs_count;

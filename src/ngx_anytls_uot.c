@@ -52,8 +52,9 @@ ngx_anytls_uot_queue_udp_frame(ngx_anytls_stream_t *st, ngx_chain_t *cl,
     b->pos = pos;
     b->last = pos + len;
 
-    return ngx_anytls_client_mux_queue_chain_frame(st->ac, st, NGX_ANYTLS_CMD_PSH,
-                                        st->id, cl, len, 1);
+    return ngx_anytls_client_mux_queue_chain_frame(st->ac, st,
+                                                  NGX_ANYTLS_CMD_PSH,
+                                                  st->id, cl, len, 1, 0);
 }
 
 static ngx_int_t

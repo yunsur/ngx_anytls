@@ -133,6 +133,29 @@ ngx_anytls_upstream_state_on_first_byte(ngx_stream_session_t *s,
 
 
 void
+ngx_anytls_upstream_state_record_received(ngx_stream_session_t *s,
+    ngx_anytls_upstream_state_tracker_t *tracker, off_t bytes)
+{
+    ngx_stream_upstream_state_t *state;
+
+    if (bytes <= 0 || tracker->finalized) {
+        return;
+    }
+
+    state = ngx_anytls_upstream_state_get(s, tracker);
+    if (state == NULL) {
+        return;
+    }
+
+    if (state->first_byte_time == (ngx_msec_t) -1) {
+        state->first_byte_time = ngx_current_msec - tracker->start_time;
+    }
+
+    tracker->bytes_received += bytes;
+}
+
+
+void
 ngx_anytls_upstream_state_add_bytes_sent(ngx_stream_session_t *s,
     ngx_anytls_upstream_state_tracker_t *tracker, off_t bytes)
 {

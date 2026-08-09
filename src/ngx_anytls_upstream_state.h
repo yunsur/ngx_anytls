@@ -9,6 +9,8 @@ void ngx_anytls_upstream_state_on_connect(ngx_stream_session_t *s,
     ngx_anytls_upstream_state_tracker_t *tracker);
 void ngx_anytls_upstream_state_on_first_byte(ngx_stream_session_t *s,
     ngx_anytls_upstream_state_tracker_t *tracker);
+void ngx_anytls_upstream_state_record_received(ngx_stream_session_t *s,
+    ngx_anytls_upstream_state_tracker_t *tracker, off_t bytes);
 void ngx_anytls_upstream_state_add_bytes_sent(ngx_stream_session_t *s,
     ngx_anytls_upstream_state_tracker_t *tracker, off_t bytes);
 void ngx_anytls_upstream_state_add_bytes_received(ngx_stream_session_t *s,

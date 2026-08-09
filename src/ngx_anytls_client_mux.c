@@ -376,7 +376,8 @@ ngx_anytls_client_mux_queue_ref_frame(ngx_anytls_connection_t *ac, ngx_anytls_st
 ngx_int_t
 ngx_anytls_client_mux_queue_chain_frame(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, ngx_uint_t cmd, uint32_t stream_id,
-    ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload)
+    ngx_chain_t *payload, size_t len, ngx_uint_t recycle_payload,
+    ngx_uint_t room_checked)
 {
     ngx_anytls_out_frame_t *f;
 
@@ -384,7 +385,10 @@ ngx_anytls_client_mux_queue_chain_frame(ngx_anytls_connection_t *ac,
         return NGX_ERROR;
     }
 
-    if (cmd == NGX_ANYTLS_CMD_PSH && !ngx_anytls_client_mux_has_room(ac, len)) {
+    if (cmd == NGX_ANYTLS_CMD_PSH
+        && !room_checked
+        && !ngx_anytls_client_mux_has_room(ac, len))
+    {
         return NGX_AGAIN;
     }
 

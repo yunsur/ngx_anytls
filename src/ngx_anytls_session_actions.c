@@ -31,14 +31,9 @@ ngx_anytls_session_actions_run(ngx_anytls_connection_t *ac,
 
         case NGX_ANYTLS_ACTION_OPEN_STREAM:
             /* SYN: core validated settings_received and stream_id;
-             * dispatcher checks duplicate and creates stream. */
-            if (ngx_anytls_stream_resolve(ac, a->stream_id,
-                    NGX_ANYTLS_STREAM_OP_EXISTS))
-            {
-                break;  /* duplicate SYN, ignore */
-            }
-            st = ngx_anytls_stream_resolve(ac, a->stream_id,
-                    NGX_ANYTLS_STREAM_OP_CREATE);
+             * duplicate streams are ignored. */
+            st = ngx_anytls_stream_create_if_absent(ac, a->stream_id,
+                                                    NULL);
             if (st == NULL) {
                 act_rc = NGX_ERROR;
             }
@@ -48,8 +43,7 @@ ngx_anytls_session_actions_run(ngx_anytls_connection_t *ac,
         case NGX_ANYTLS_ACTION_FORWARD_CLIENT_PAYLOAD:
             /* Core marks every PSH as FORWARD_CLIENT_PAYLOAD.
              * Dispatcher resolves stream and handles first-PSH. */
-            st = ngx_anytls_stream_resolve(ac, a->stream_id,
-                    NGX_ANYTLS_STREAM_OP_FIND);
+            st = ngx_anytls_stream_find(ac, a->stream_id);
             if (st == NULL) { break; }
             if (!ngx_anytls_stream_can_accept_payload(st)) {
                 break;
@@ -139,8 +133,7 @@ ngx_anytls_session_actions_run(ngx_anytls_connection_t *ac,
             break;
 
         case NGX_ANYTLS_ACTION_CLIENT_FIN:
-            st = ngx_anytls_stream_resolve(ac, a->stream_id,
-                    NGX_ANYTLS_STREAM_OP_FIND);
+            st = ngx_anytls_stream_find(ac, a->stream_id);
             if (st) {
                 ngx_anytls_upstream_mux_handle_client_fin(ac, st);
             }

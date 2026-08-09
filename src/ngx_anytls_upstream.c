@@ -13,10 +13,15 @@
 #include "ngx_anytls_upstream_state.h"
 #include "ngx_anytls_connection_private.h"
 
+#define NGX_ANYTLS_PENDING_WRITE_CHAIN_LIMIT  64
+#define NGX_ANYTLS_SMALL_READ_BUF_CAPACITY    16384
+
 static void *ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac,
     size_t len);
 static void ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac,
     void *buf);
+static ngx_chain_t *ngx_anytls_upstream_pop_read_buf(
+    ngx_anytls_connection_t *ac, ngx_chain_t **list, size_t capacity);
 
 static ngx_int_t
 ngx_anytls_test_connect(ngx_connection_t *c)
@@ -194,16 +199,14 @@ ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac, void *data)
 }
 
 
-ngx_chain_t *
-ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
+static ngx_chain_t *
+ngx_anytls_upstream_pop_read_buf(ngx_anytls_connection_t *ac,
+    ngx_chain_t **list, size_t capacity)
 {
     ngx_chain_t *cl, **ll;
     ngx_buf_t   *b;
-    size_t       capacity;
 
-    capacity = size + NGX_ANYTLS_FRAME_HEADER_LEN;
-
-    for (ll = &ac->free_read_bufs; *ll; ll = &(*ll)->next) {
+    for (ll = list; *ll; ll = &(*ll)->next) {
         cl = *ll;
         b = cl->buf;
 
@@ -217,15 +220,37 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
         }
     }
 
+    return NULL;
+}
+
+
+ngx_chain_t *
+ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
+{
+    ngx_chain_t *cl, **list, **fallback;
+    ngx_buf_t   *b;
+    size_t       capacity;
+
+    capacity = size + NGX_ANYTLS_FRAME_HEADER_LEN;
+    list = (capacity <= NGX_ANYTLS_SMALL_READ_BUF_CAPACITY)
+           ? &ac->free_read_bufs : &ac->free_read_bufs_large;
+    fallback = (list == &ac->free_read_bufs)
+               ? &ac->free_read_bufs_large : &ac->free_read_bufs;
+
+    cl = ngx_anytls_upstream_pop_read_buf(ac, list, capacity);
+    if (cl) {
+        return cl;
+    }
+
     cl = ngx_alloc(sizeof(ngx_chain_t), ngx_anytls_conn_log(ac));
     if (cl == NULL) {
-        return NULL;
+        return ngx_anytls_upstream_pop_read_buf(ac, fallback, capacity);
     }
 
     b = ngx_alloc(sizeof(ngx_buf_t), ngx_anytls_conn_log(ac));
     if (b == NULL) {
         ngx_free(cl);
-        return NULL;
+        return ngx_anytls_upstream_pop_read_buf(ac, fallback, capacity);
     }
 
     ngx_memzero(b, sizeof(ngx_buf_t));
@@ -236,7 +261,7 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
     if (b->start == NULL) {
         ngx_free(b);
         ngx_free(cl);
-        return NULL;
+        return ngx_anytls_upstream_pop_read_buf(ac, fallback, capacity);
     }
 
     b->pos = b->start + NGX_ANYTLS_FRAME_HEADER_LEN;
@@ -251,15 +276,20 @@ ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac, size_t size)
 void
 ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac, ngx_chain_t *cl)
 {
+    ngx_chain_t **list;
+
     if (ac == NULL || cl == NULL) {
         return;
     }
 
     if (ac->free_read_bufs_count < NGX_ANYTLS_MAX_FREE_READ_BUFS) {
+        list = ((size_t) (cl->buf->end - cl->buf->start)
+                <= NGX_ANYTLS_SMALL_READ_BUF_CAPACITY)
+               ? &ac->free_read_bufs : &ac->free_read_bufs_large;
         cl->buf->pos = cl->buf->start + NGX_ANYTLS_FRAME_HEADER_LEN;
         cl->buf->last = cl->buf->pos;
-        cl->next = ac->free_read_bufs;
-        ac->free_read_bufs = cl;
+        cl->next = *list;
+        *list = cl;
         ac->free_read_bufs_count++;
 
     } else {
@@ -386,7 +416,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     c = st->upstream;
     if (c && st->state == NGX_ANYTLS_STREAM_CONNECTED
-        && st->pending_in == NULL)
+        && (st->pending_in == NULL || c->write->ready))
     {
         while (len) {
             n = ngx_anytls_transport_send(c, data, len);
@@ -468,9 +498,12 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st,
 {
     ngx_connection_t *c;
     ngx_anytls_pending_t *p;
-    ssize_t n;
-    size_t to_send;
-    size_t total;
+    ngx_chain_t chains[NGX_ANYTLS_PENDING_WRITE_CHAIN_LIMIT];
+    ngx_buf_t bufs[NGX_ANYTLS_PENDING_WRITE_CHAIN_LIMIT];
+    ngx_chain_t *unsent;
+    off_t limit;
+    ngx_uint_t i, nbufs;
+    size_t remaining, size, sent, batch_sent, total;
 
     /* API contract: always report how many bytes were sent */
     if (sent_out) {
@@ -491,78 +524,146 @@ ngx_anytls_upstream_send_pending(ngx_anytls_stream_t *st,
     }
 
     while (st->pending_in) {
-        p = st->pending_in;
-        to_send = p->len - p->sent;
-        if (to_send > max_bytes) {
-            to_send = max_bytes;
+        if (max_bytes == 0) {
+            if (sent_out) {
+                *sent_out = total;
+            }
+            return NGX_OK;
         }
-        n = ngx_anytls_transport_send(c, p->data + p->sent, to_send);
-        if (n == NGX_ERROR || n == 0) {
+
+        remaining = max_bytes;
+        nbufs = 0;
+
+        for (p = st->pending_in;
+             p && nbufs < NGX_ANYTLS_PENDING_WRITE_CHAIN_LIMIT;
+             p = p->next)
+        {
+            size = p->len - p->sent;
+            if (size == 0) {
+                continue;
+            }
+            if (size > remaining) {
+                size = remaining;
+            }
+
+            ngx_memzero(&bufs[nbufs], sizeof(ngx_buf_t));
+            bufs[nbufs].pos = p->data + p->sent;
+            bufs[nbufs].last = bufs[nbufs].pos + size;
+            bufs[nbufs].start = bufs[nbufs].pos;
+            bufs[nbufs].end = bufs[nbufs].last;
+            bufs[nbufs].memory = 1;
+
+            chains[nbufs].buf = &bufs[nbufs];
+            chains[nbufs].next = (nbufs + 1
+                                  < NGX_ANYTLS_PENDING_WRITE_CHAIN_LIMIT)
+                                 ? &chains[nbufs + 1] : NULL;
+            nbufs++;
+
+            if (remaining != NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED) {
+                remaining -= size;
+                if (remaining == 0) {
+                    break;
+                }
+            }
+        }
+
+        if (nbufs == 0) {
+            break;
+        }
+        chains[nbufs - 1].next = NULL;
+
+        limit = (max_bytes == NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED
+                 || max_bytes > (size_t) NGX_MAX_OFF_T_VALUE)
+                ? 0 : (off_t) max_bytes;
+
+        unsent = ngx_anytls_transport_write_chain(c, chains, limit);
+        if (unsent == NGX_CHAIN_ERROR) {
             if (sent_out) {
                 *sent_out = total;
             }
             return NGX_ERROR;
         }
-        if (n == NGX_AGAIN) {
+
+        sent = 0;
+        for (i = 0; i < nbufs; i++) {
+            sent += (size_t) (bufs[i].pos - bufs[i].start);
+        }
+
+        if (sent == 0) {
             if (sent_out) {
                 *sent_out = total;
             }
             return ngx_anytls_transport_arm_write(c);
         }
 
-        total += (size_t) n;
-        p->sent += (size_t) n;
-        ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
-                                                 &st->upstream_state, n);
+        batch_sent = sent;
+        total += batch_sent;
 
-        if (p->sent != p->len) {
-            if (sent_out) {
-                *sent_out = total;
+        while (sent && st->pending_in) {
+            p = st->pending_in;
+            size = p->len - p->sent;
+            if (size > sent) {
+                size = sent;
             }
-            return ngx_anytls_transport_arm_write(c);
-        }
 
-        /* Buffer fully sent — clean up before checking budget so that
-         * st->pending_in reflects the true next buffer (or NULL). */
-        st->pending_in = p->next;
-        if (st->pending_in_bytes >= p->len) {
-            st->pending_in_bytes -= p->len;
-        } else {
-            st->pending_in_bytes = 0;
-        }
-        if (st->ac->pending_input >= p->len) {
-            st->ac->pending_input -= p->len;
-        } else {
-            st->ac->pending_input = 0;
-        }
-        if (st->pending_in == NULL) {
-            st->pending_in_last = &st->pending_in;
-        }
-        ngx_anytls_upstream_free_pending(st, p);
+            p->sent += size;
+            sent -= size;
 
-        if (ngx_anytls_upstream_update_input_state(st) != NGX_OK) {
-            if (sent_out) {
-                *sent_out = total;
-            }
-            return NGX_ERROR;
-        }
+            ngx_anytls_upstream_state_add_bytes_sent(st->ac->session,
+                                                     &st->upstream_state,
+                                                     (off_t) size);
 
-        /* Drain byte budget after cleanup — if exhausted and more data
-         * exists, stop early so the scheduler can re-queue this stream
-         * for the next cycle. */
-        if (max_bytes != NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED) {
-            if (max_bytes >= (size_t) n) {
-                max_bytes -= (size_t) n;
-            } else {
-                max_bytes = 0;
-            }
-            if (max_bytes == 0 && st->pending_in != NULL) {
+            if (p->sent != p->len) {
                 if (sent_out) {
                     *sent_out = total;
                 }
-                return NGX_OK;
+                return ngx_anytls_transport_arm_write(c);
+            }
+
+            /* Buffer fully sent — clean up before checking budget so that
+             * st->pending_in reflects the true next buffer (or NULL). */
+            st->pending_in = p->next;
+            if (st->pending_in_bytes >= p->len) {
+                st->pending_in_bytes -= p->len;
+            } else {
+                st->pending_in_bytes = 0;
+            }
+            if (st->ac->pending_input >= p->len) {
+                st->ac->pending_input -= p->len;
+            } else {
+                st->ac->pending_input = 0;
+            }
+            if (st->pending_in == NULL) {
+                st->pending_in_last = &st->pending_in;
+            }
+            ngx_anytls_upstream_free_pending(st, p);
+
+            if (ngx_anytls_upstream_update_input_state(st) != NGX_OK) {
+                if (sent_out) {
+                    *sent_out = total;
+                }
+                return NGX_ERROR;
             }
         }
+
+        if (max_bytes != NGX_ANYTLS_UPSTREAM_SEND_UNLIMITED) {
+            if (max_bytes >= batch_sent) {
+                max_bytes -= batch_sent;
+            } else {
+                max_bytes = 0;
+            }
+        }
+
+        if (unsent != NULL || max_bytes == 0) {
+            break;
+        }
+    }
+
+    if (st->pending_in != NULL) {
+        if (sent_out) {
+            *sent_out = total;
+        }
+        return ngx_anytls_transport_arm_write(c);
     }
 
     /* If client FIN arrived while data was still pending, the FIN handler

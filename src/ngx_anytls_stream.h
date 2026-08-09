@@ -3,11 +3,10 @@
 
 #include "ngx_stream_anytls_module.h"
 
-ngx_anytls_stream_t *ngx_anytls_stream_create(ngx_anytls_connection_t *ac,
-    uint32_t id);
+ngx_anytls_stream_t *ngx_anytls_stream_create_if_absent(
+    ngx_anytls_connection_t *ac, uint32_t id, ngx_uint_t *created);
 ngx_anytls_stream_t *ngx_anytls_stream_find(ngx_anytls_connection_t *ac,
     uint32_t id);
-ngx_uint_t ngx_anytls_stream_exists(ngx_anytls_connection_t *ac, uint32_t id);
 void ngx_anytls_stream_mark_closed_by_protocol(ngx_anytls_stream_t *st);
 ngx_int_t ngx_anytls_stream_send_fin_and_close(ngx_anytls_stream_t *st);
 void ngx_anytls_stream_close(ngx_anytls_stream_t *st);
@@ -15,18 +14,6 @@ void ngx_anytls_stream_remove_ready(ngx_anytls_stream_t *st);
 
 
 ngx_pool_t *ngx_anytls_stream_pool(ngx_anytls_stream_t *st);
-
-
-/* Stream operation enum — used by the dispatcher (client_handler)
- * and other protocol-adapter layers for stream lifecycle. */
-typedef enum {
-    NGX_ANYTLS_STREAM_OP_CREATE,
-    NGX_ANYTLS_STREAM_OP_FIND,
-    NGX_ANYTLS_STREAM_OP_EXISTS
-} ngx_anytls_stream_op_e;
-
-ngx_anytls_stream_t *ngx_anytls_stream_resolve(ngx_anytls_connection_t *ac,
-    uint32_t id, ngx_anytls_stream_op_e op);
 
 
 /* Stream state accessors — prefer over direct field access.
