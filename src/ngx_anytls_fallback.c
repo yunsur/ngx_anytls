@@ -297,6 +297,12 @@ ngx_anytls_fallback_read(ngx_anytls_connection_t *ac, ngx_connection_t *from,
 
         b->last += n;
 
+        if (upstream) {
+            /* reading from the client (forwarding to the fallback
+             * upstream): account for $bytes_received */
+            ac->session->received += n;
+        }
+
         if (!upstream) {
             ngx_anytls_upstream_state_on_first_byte(ac->session,
                                                     &ac->fallback_state);

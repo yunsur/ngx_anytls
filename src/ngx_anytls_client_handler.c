@@ -350,6 +350,10 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
             return;
         }
 
+        /* client-side bytes for $bytes_received; nginx core only maintains
+         * s->received on the stock proxy read path */
+        s->received += n;
+
         if (ac->remnant_len) {
             size_t total = ac->remnant_len + (size_t) n;
             ac->remnant_len = 0;
