@@ -372,6 +372,7 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     }
 
     c = pc->connection;
+    st->upstream = c;
     c->data = st;
     if (ngx_anytls_stream_pool(st) == NULL) {
         return NGX_ERROR;
@@ -380,7 +381,16 @@ ngx_anytls_upstream_open_resolved(ngx_anytls_stream_t *st)
     c->log = st->ac->log;
     c->read->handler = ngx_anytls_upstream_read_handler;
     c->write->handler = ngx_anytls_upstream_write_handler;
-    st->upstream = c;
+
+    {
+        ngx_stream_core_srv_conf_t *cscf;
+        cscf = ngx_stream_get_module_srv_conf(st->ac->session,
+                                              ngx_stream_core_module);
+        if (cscf->tcp_nodelay && ngx_tcp_nodelay(c) != NGX_OK) {
+            return NGX_ERROR;
+        }
+    }
+
     st->state = NGX_ANYTLS_STREAM_CONNECTING;
 
     if (rc == NGX_OK) {
