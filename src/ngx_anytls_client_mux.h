@@ -12,6 +12,8 @@ struct ngx_anytls_connection_s;
 typedef struct ngx_anytls_connection_s ngx_anytls_connection_t;
 struct ngx_anytls_stream_s;
 typedef struct ngx_anytls_stream_s ngx_anytls_stream_t;
+struct ngx_anytls_out_frame_s;
+typedef struct ngx_anytls_out_frame_s ngx_anytls_out_frame_t;
 
 
 #include "ngx_anytls_mux_events.h"
@@ -42,6 +44,9 @@ void ngx_anytls_client_mux_resume_upstream_reads(ngx_anytls_connection_t *ac);
 ngx_int_t ngx_anytls_client_mux_queue_error(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st, u_char *data, size_t len);
 void ngx_anytls_client_mux_mark_ready(ngx_anytls_stream_t *st);
+void ngx_anytls_client_mux_discard_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_out_frame_t *f);
+void ngx_anytls_client_mux_destroy(ngx_anytls_connection_t *ac);
 
 /* Returns 1 if client output can accept at least payload_len bytes */
 ngx_uint_t ngx_anytls_client_mux_can_accept_output(

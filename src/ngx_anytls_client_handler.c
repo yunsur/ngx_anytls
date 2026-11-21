@@ -56,8 +56,9 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
                 ngx_anytls_send_http_400(ac);
                 return NGX_ERROR;
             }
-            if (ngx_anytls_fallback_start(ac, auth_result.fallback_replay,
-                                           auth_result.fallback_replay_len) != NGX_OK)
+            if (ngx_anytls_fallback_start(
+                    ac, auth_result.fallback_replay,
+                    auth_result.fallback_replay_len, data, len) != NGX_OK)
             {
                 return NGX_ERROR;
             }
@@ -125,9 +126,9 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
         }
     }
 
-    /* Compact any incomplete frame to start of read_buf (remnant) */
+    /* Compact only when the incomplete frame is not already at the start. */
     ac->remnant_len = (size_t) (last - pos);
-    if (ac->remnant_len) {
+    if (ac->remnant_len && pos != ac->read_buf) {
         ngx_memmove(ac->read_buf, pos, ac->remnant_len);
     }
 
@@ -289,6 +290,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     ssize_t n;
     ngx_int_t rc;
     size_t read_bytes;
+    size_t available, recv_size;
     ngx_uint_t read_loops;
     ngx_uint_t budget_exhausted;
 
@@ -336,7 +338,20 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
     budget_exhausted = 0;
 
     for ( ;; ) {
-        n = ngx_anytls_transport_read(c, buf + ac->remnant_len, ac->read_buf_size);
+        if (ac->remnant_len > ac->read_buf_capacity) {
+            ngx_anytls_finalize(ac);
+            return;
+        }
+
+        available = ac->read_buf_capacity - ac->remnant_len;
+        if (available == 0) {
+            ngx_log_error(NGX_LOG_ERR, c->log, 0,
+                          "anytls: full client frame buffer left unparsed");
+            ngx_anytls_finalize(ac);
+            return;
+        }
+        recv_size = ngx_min(ac->read_buf_size, available);
+        n = ngx_anytls_transport_read(c, buf + ac->remnant_len, recv_size);
         if (n == NGX_AGAIN) {
             break;
         }

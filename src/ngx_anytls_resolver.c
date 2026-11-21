@@ -10,26 +10,33 @@
 
 static void ngx_anytls_resolve_handler(ngx_resolver_ctx_t *resolve);
 
-static ngx_int_t
+ngx_int_t
 ngx_anytls_resolve_sync(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
-    ngx_url_t url;
-
     ngx_pool_t *pool;
-    pool = ngx_anytls_stream_pool(st);
-    if (pool == NULL) { return NGX_ERROR; }
-    if (ngx_anytls_addr_to_url(pool, addr, &url) != NGX_OK
-        || url.naddrs == 0)
-    {
+    ngx_url_t url;
+    ngx_int_t rc;
+
+    pool = ngx_create_pool(NGX_DEFAULT_POOL_SIZE, st->ac->log);
+    if (pool == NULL) {
         return NGX_ERROR;
     }
 
-    ngx_memzero(&addr->sockaddr, sizeof(addr->sockaddr));
-    ngx_memcpy(&addr->sockaddr, url.addrs[0].sockaddr, url.addrs[0].socklen);
-    addr->socklen = url.addrs[0].socklen;
-    addr->has_sockaddr = 1;
+    rc = NGX_ERROR;
+    if (ngx_anytls_addr_to_url(pool, addr, &url) == NGX_OK
+        && url.naddrs != 0
+        && url.addrs[0].socklen <= sizeof(addr->sockaddr))
+    {
+        ngx_memzero(&addr->sockaddr, sizeof(addr->sockaddr));
+        ngx_memcpy(&addr->sockaddr, url.addrs[0].sockaddr,
+                   url.addrs[0].socklen);
+        addr->socklen = url.addrs[0].socklen;
+        addr->has_sockaddr = 1;
+        rc = NGX_OK;
+    }
 
-    return NGX_OK;
+    ngx_destroy_pool(pool);
+    return rc;
 }
 
 ngx_int_t
@@ -68,23 +75,16 @@ ngx_anytls_resolve_addr(ngx_anytls_stream_t *st,
         return ngx_anytls_resolve_sync(st, addr);
     }
 
-    ngx_pool_t *pool;
-    pool = ngx_anytls_stream_pool(st);
-    if (pool == NULL) { ngx_resolve_name_done(resolve); return NGX_ERROR; }
-    resolve->name.data = ngx_pnalloc(pool, addr->host.len);
-    if (resolve->name.data == NULL) {
-        ngx_resolve_name_done(resolve);
-        return NGX_ERROR;
-    }
-    ngx_memcpy(resolve->name.data, addr->host.data, addr->host.len);
-    resolve->name.len = addr->host.len;
+    ngx_memcpy(st->resolver_domain, addr->host.data, addr->host.len);
+    st->resolver_domain[addr->host.len] = '\0';
+    st->resolver_domain_len = addr->host.len;
+    resolve->name.data = st->resolver_domain;
+    resolve->name.len = st->resolver_domain_len;
     resolve->handler = ngx_anytls_resolve_handler;
     resolve->data = st;
     resolve->timeout = conf->resolver_timeout;
 
-    ngx_memcpy(st->resolver_domain, addr->host.data, addr->host.len);
-    st->resolver_domain[addr->host.len] = '\0';
-    st->resolver_domain_len = addr->host.len;
+    /* resolver_domain also owns resolve->name for the pending request. */
     st->resolver_port = addr->port;
     st->resolver_target = target;
     st->resolver_ctx = resolve;

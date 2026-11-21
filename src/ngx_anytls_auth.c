@@ -36,31 +36,26 @@ ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
 
     ngx_memzero(&result, sizeof(result));
 
-    if (ac->auth_len < 34) {
-        n = ngx_min(len, 34 - ac->auth_len);
+    if (ac->auth_len < NGX_ANYTLS_AUTH_PREFIX_LEN) {
+        n = ngx_min(len, NGX_ANYTLS_AUTH_PREFIX_LEN - ac->auth_len);
         ngx_memcpy(ac->auth + ac->auth_len, data, n);
         ac->auth_len += n;
         result.consumed += n;
         data += n;
         len -= n;
 
-        if (ac->auth_len < 34) {
+        if (ac->auth_len < NGX_ANYTLS_AUTH_PREFIX_LEN) {
             result.result = NGX_ANYTLS_AUTH_MORE;
             return result;
         }
     }
 
     if (!ac->auth_hash_matched) {
-        /* Constant-time set comparison: walk every user's hash before
-         * deciding, so the number/position of users is not leaked
-         * through timing.  The first matching name is captured.
-         *
-         * The result is cached in ac->auth_hash_matched: an attacker
-         * who knows a valid hash can then dribble a large auth padding
-         * in slow chunks, and without the cache every chunk would
-         * rescan up to 64 users (CPU amplification).  Caching leaks
-         * nothing, since only the sender of a valid hash observes the
-         * match. */
+        /*
+         * Walk every configured hash before deciding so the number and
+         * position of users are not leaked through timing.  Cache a match
+         * while padding arrives in later reads.
+         */
         ngx_anytls_user_t *users;
         ngx_uint_t i, matched;
 
@@ -68,7 +63,10 @@ ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
         matched = 0;
 
         for (i = 0; i < ac->conf->users_n; i++) {
-            if (ngx_anytls_auth_hash_eq(ac->auth, users[i].hash, 32) == NGX_OK) {
+            if (ngx_anytls_auth_hash_eq(ac->auth, users[i].hash,
+                                       NGX_ANYTLS_AUTH_HASH_LEN)
+                == NGX_OK)
+            {
                 if (!matched) {
                     ac->user_name = users[i].name;
                 }
@@ -77,32 +75,20 @@ ngx_anytls_auth_process(ngx_anytls_connection_t *ac, u_char *data, size_t len)
         }
 
         if (!matched) {
-            if (len > 0) {
-                n = ngx_min(len, sizeof(ac->auth) - ac->auth_len);
-                ngx_memcpy(ac->auth + ac->auth_len, data, n);
-                ac->auth_len += n;
-                result.consumed += n;
-            }
-
             result.result = NGX_ANYTLS_AUTH_FALLBACK;
             result.fallback_replay = ac->auth;
-            result.fallback_replay_len = ac->auth_len;
+            result.fallback_replay_len = NGX_ANYTLS_AUTH_PREFIX_LEN;
             return result;
         }
 
         ac->auth_hash_matched = 1;
+        ac->auth_padding_len = (uint16_t) ((ac->auth[32] << 8)
+                                           | ac->auth[33]);
     }
 
-    /* padding length is a uint16, so need = 34 + padding_len is at most
-     * 34 + 65535 = sizeof(ac->auth): the buffer can always hold it, and
-     * a too-short buffer simply keeps waiting (AUTH_MORE) below.  No
-     * overflow guard is needed here. */
-    ac->auth_padding_len = (uint16_t) ((ac->auth[32] << 8) | ac->auth[33]);
-    need = 34 + ac->auth_padding_len;
-
+    need = NGX_ANYTLS_AUTH_PREFIX_LEN + ac->auth_padding_len;
     if (ac->auth_len < need) {
         n = ngx_min(len, need - ac->auth_len);
-        ngx_memcpy(ac->auth + ac->auth_len, data, n);
         ac->auth_len += n;
         result.consumed += n;
 

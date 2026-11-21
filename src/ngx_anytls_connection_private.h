@@ -61,6 +61,7 @@ typedef struct ngx_stream_anytls_srv_conf_s {
     ngx_msec_t               handshake_timeout;
     size_t                   buffer_size;
     ngx_uint_t               max_streams;
+    ngx_uint_t               max_upstream_states;
     ngx_uint_t               max_uot_streams;
     size_t                   max_pending_output;
     size_t                   max_pending_input;
@@ -82,6 +83,7 @@ struct ngx_anytls_connection_s {
 
     ngx_anytls_stream_t    **stream_ht;
     uint32_t                 stream_ht_mask;
+    ngx_uint_t               stream_ht_tombstones;
     ngx_queue_t              stream_list;
     ngx_queue_t              ready_streams;
     ngx_queue_t              blocked_upstream_reads;
@@ -110,18 +112,24 @@ struct ngx_anytls_connection_s {
 
     ngx_chain_t             *free_read_bufs;
     ngx_chain_t             *free_read_bufs_large;
-    ngx_uint_t               free_read_bufs_count;
+    size_t                   free_read_buf_bytes;
     void                    *free_pending_bufs;
-    ngx_uint_t               free_pending_bufs_count;
+    size_t                   free_pending_buf_bytes;
 
     u_char                  *read_buf;
     size_t                   read_buf_size;
+    size_t                   read_buf_capacity;
 
     size_t                   remnant_len;
 
-    u_char                   auth[NGX_ANYTLS_AUTH_BUF_SIZE];
+    u_char                   auth[NGX_ANYTLS_AUTH_PREFIX_LEN];
     size_t                   auth_len;
     uint16_t                 auth_padding_len;
+    ngx_uint_t               peak_active_streams;
+    size_t                   peak_pending_input;
+    size_t                   peak_pending_output;
+    ngx_uint_t               peak_frames;
+    ngx_uint_t               upstream_states_truncated;
 
     ngx_anytls_session_core_t  session_core;
     ngx_str_t                 user_name;

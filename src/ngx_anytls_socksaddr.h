@@ -33,6 +33,9 @@ ngx_int_t ngx_anytls_parse_socksaddr(ngx_pool_t *pool, u_char *data,
 ngx_int_t ngx_anytls_parse_uot_packet(ngx_pool_t *pool, u_char *data,
     size_t len, ngx_anytls_addr_t *addr, u_char **payload, size_t *payload_len,
     size_t *consumed);
+ngx_int_t ngx_anytls_parse_uot_packet_ref(u_char *data, size_t len,
+    ngx_anytls_addr_t *addr, u_char **payload, size_t *payload_len,
+    size_t *consumed);
 ngx_int_t ngx_anytls_addr_to_url(ngx_pool_t *pool, ngx_anytls_addr_t *addr,
     ngx_url_t *url);
 

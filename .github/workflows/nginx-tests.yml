@@ -47,9 +47,30 @@ jobs:
           git clone --depth 1 \
             https://github.com/nginx/nginx-tests.git "$GITHUB_WORKSPACE/nginx-tests"
 
-      - name: Run tests
+      - name: Run fast tests
+        timeout-minutes: 10
+        run: |
+          mapfile -t tests < <(
+            printf '%s\n' tests/nginx/*.t |
+              grep -Ev '/(reload|stream_churn)\.t$'
+          )
+          TEST_NGINX_BINARY="$GITHUB_WORKSPACE/nginx-src/objs/nginx" \
+          TEST_NGINX_LIB="$GITHUB_WORKSPACE/nginx-tests/lib" \
+          prove -v "${tests[@]}"
+        working-directory: ${{ github.workspace }}/ngx_anytls
+
+      - name: Run reload test
+        timeout-minutes: 5
         run: |
           TEST_NGINX_BINARY="$GITHUB_WORKSPACE/nginx-src/objs/nginx" \
           TEST_NGINX_LIB="$GITHUB_WORKSPACE/nginx-tests/lib" \
-          prove -v tests/nginx/*.t
+          prove -v tests/nginx/reload.t
+        working-directory: ${{ github.workspace }}/ngx_anytls
+
+      - name: Run stream churn test
+        timeout-minutes: 12
+        run: |
+          TEST_NGINX_BINARY="$GITHUB_WORKSPACE/nginx-src/objs/nginx" \
+          TEST_NGINX_LIB="$GITHUB_WORKSPACE/nginx-tests/lib" \
+          prove -v tests/nginx/stream_churn.t
         working-directory: ${{ github.workspace }}/ngx_anytls

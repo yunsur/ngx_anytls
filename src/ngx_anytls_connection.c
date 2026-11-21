@@ -44,16 +44,11 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ac->state = NGX_ANYTLS_CONN_AUTH;
     ngx_anytls_session_core_init(&ac->session_core, conf->padding_md5,
                                   conf->padding_data, conf->padding_data_len);
-    read_size = ngx_min(conf->buffer_size,
-                        NGX_ANYTLS_FRAME_HEADER_LEN
-                        + NGX_ANYTLS_MAX_FRAME_DATA);
+    ac->read_buf_capacity = NGX_ANYTLS_FRAME_HEADER_LEN
+                            + NGX_ANYTLS_MAX_FRAME_DATA;
+    read_size = ngx_min(conf->buffer_size, ac->read_buf_capacity);
     ac->read_buf_size = read_size;
-    /* read_buf serves dual purpose: recv target AND remnant storage.
-     * Must be large enough to hold remnant (up to one full frame)
-     * plus a full recv. */
-    ac->read_buf = ngx_pnalloc(c->pool,
-                               read_size + NGX_ANYTLS_FRAME_HEADER_LEN
-                               + NGX_ANYTLS_MAX_FRAME_DATA);
+    ac->read_buf = ngx_pnalloc(c->pool, ac->read_buf_capacity);
     if (ac->read_buf == NULL) {
         ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
@@ -68,26 +63,6 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ngx_queue_init(&ac->closing_streams);
     ngx_anytls_upstream_mux_init(ac);
 
-    ac->stream_ht_mask = 0;
-    {
-        uint32_t size = (uint32_t) (conf->max_streams * 2);
-        /* Round up to power of 2 */
-        size--;
-        size |= size >> 1;
-        size |= size >> 2;
-        size |= size >> 4;
-        size |= size >> 8;
-        size |= size >> 16;
-        size++;
-        if (size < 64) { size = 64; }
-        ac->stream_ht_mask = size - 1;
-    }
-    ac->stream_ht = ngx_pcalloc(c->pool,
-                                sizeof(ngx_anytls_stream_t *) * (ac->stream_ht_mask + 1));
-    if (ac->stream_ht == NULL) {
-        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
-        return;
-    }
 
     ngx_stream_set_ctx(s, ac, ngx_stream_anytls_module);
     c->data = s;
@@ -150,6 +125,8 @@ ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
         ngx_anytls_stream_close(st);
     }
 
+    ngx_anytls_client_mux_destroy(ac);
+
     while (ac->free_read_bufs) {
         ngx_chain_t *cl = ac->free_read_bufs;
         ac->free_read_bufs = cl->next;
@@ -165,12 +142,14 @@ ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
         ngx_free(cl->buf);
         ngx_free(cl);
     }
+    ac->free_read_buf_bytes = 0;
 
     while (ac->free_pending_bufs) {
         void *next = *(void **) ac->free_pending_bufs;
         ngx_free(ac->free_pending_bufs);
         ac->free_pending_bufs = next;
     }
+    ac->free_pending_buf_bytes = 0;
 
     if (ac->fallback) {
         ngx_anytls_transport_close(ac->fallback);

@@ -180,6 +180,103 @@ ngx_anytls_parse_uot_packet(ngx_pool_t *pool, u_char *data, size_t len,
 }
 
 ngx_int_t
+ngx_anytls_parse_uot_packet_ref(u_char *data, size_t len,
+    ngx_anytls_addr_t *addr, u_char **payload, size_t *payload_len,
+    size_t *consumed)
+{
+    u_char *p, *last;
+    size_t host_len;
+    uint16_t plen, port;
+    struct sockaddr_in *sin;
+    struct sockaddr_in6 *sin6;
+
+    if (len < 1) {
+        return NGX_AGAIN;
+    }
+
+    ngx_memzero(addr, sizeof(*addr));
+    p = data + 1;
+    last = data + len;
+
+    switch (data[0]) {
+    case NGX_ANYTLS_UOT_ATYP_IPV4:
+        if ((size_t) (last - p) < 8) {
+            return NGX_AGAIN;
+        }
+        addr->atyp = NGX_ANYTLS_ATYP_IPV4;
+        sin = (struct sockaddr_in *) &addr->sockaddr;
+        sin->sin_family = AF_INET;
+        ngx_memcpy(&sin->sin_addr.s_addr, p, 4);
+        addr->host.data = addr->host_buf;
+        addr->host.len = ngx_inet_ntop(AF_INET, p, addr->host_buf,
+                                       NGX_INET6_ADDRSTRLEN);
+        p += 4;
+        port = (uint16_t) ((p[0] << 8) | p[1]);
+        p += 2;
+        sin->sin_port = htons(port);
+        addr->socklen = sizeof(*sin);
+        addr->has_sockaddr = 1;
+        break;
+
+    case NGX_ANYTLS_UOT_ATYP_IPV6:
+        if ((size_t) (last - p) < 20) {
+            return NGX_AGAIN;
+        }
+        addr->atyp = NGX_ANYTLS_ATYP_IPV6;
+        sin6 = (struct sockaddr_in6 *) &addr->sockaddr;
+        sin6->sin6_family = AF_INET6;
+        ngx_memcpy(&sin6->sin6_addr, p, 16);
+        addr->host.data = addr->host_buf;
+        addr->host.len = ngx_inet_ntop(AF_INET6, p, addr->host_buf,
+                                       NGX_INET6_ADDRSTRLEN);
+        p += 16;
+        port = (uint16_t) ((p[0] << 8) | p[1]);
+        p += 2;
+        sin6->sin6_port = htons(port);
+        addr->socklen = sizeof(*sin6);
+        addr->has_sockaddr = 1;
+        break;
+
+    case NGX_ANYTLS_UOT_ATYP_DOMAIN:
+        if (p >= last) {
+            return NGX_AGAIN;
+        }
+        host_len = *p++;
+        if ((size_t) (last - p) < host_len + 4) {
+            return NGX_AGAIN;
+        }
+        addr->atyp = NGX_ANYTLS_ATYP_DOMAIN;
+        addr->host.data = p;
+        addr->host.len = host_len;
+        p += host_len;
+        port = (uint16_t) ((p[0] << 8) | p[1]);
+        p += 2;
+        break;
+
+    default:
+        return NGX_ERROR;
+    }
+
+    addr->port = port;
+    addr->consumed = (size_t) (p - data);
+    addr->mode = ngx_anytls_detect_uot(&addr->host);
+
+    if ((size_t) (last - p) < 2) {
+        return NGX_AGAIN;
+    }
+    plen = (uint16_t) ((p[0] << 8) | p[1]);
+    p += 2;
+    if ((size_t) (last - p) < plen) {
+        return NGX_AGAIN;
+    }
+
+    *payload = p;
+    *payload_len = plen;
+    *consumed = addr->consumed + 2 + plen;
+    return NGX_OK;
+}
+
+ngx_int_t
 ngx_anytls_addr_to_url(ngx_pool_t *pool, ngx_anytls_addr_t *addr, ngx_url_t *url)
 {
     size_t len;

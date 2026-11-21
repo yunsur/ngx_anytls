@@ -116,6 +116,16 @@ Per-stream read buffer size for upstream data. Controls how many bytes are read 
 Maximum concurrent multiplexed streams per AnyTLS connection.
 Hash table size scales dynamically to 2x max_streams.
 
+### `anytls_max_upstream_states`
+
+- **Syntax:** `anytls_max_upstream_states <number>;`
+- **Default:** `64`
+- **Context:** `stream`, `server`
+
+Maximum number of standard nginx upstream state entries retained per AnyTLS
+session. `0` disables retention. Traffic continues after the limit is reached;
+`$anytls_upstream_states_truncated` reports how many entries were omitted.
+
 ### `anytls_max_uot_streams`
 
 - **Syntax:** `anytls_max_uot_streams <number>;`
@@ -255,6 +265,30 @@ Integration tests use the upstream nginx Perl test harness.
 
 `TEST_NGINX_LIB` defaults to `../nginx-tests/lib` when nginx-tests is checked out next to this repository.
 
+Parser fuzz targets use libFuzzer with AddressSanitizer and
+UndefinedBehaviorSanitizer:
+
+```bash
+cmake -S fuzz -B build-fuzz \
+    -DCMAKE_C_COMPILER=clang \
+    -DNGX_SRC=/path/to/nginx
+cmake --build build-fuzz
+./build-fuzz/fuzz_auth fuzz/corpus/auth -max_total_time=300 -max_len=65536
+./build-fuzz/fuzz_uot_packet fuzz/corpus/uot_packet -max_total_time=300 -max_len=65536
+```
+
+The auth target differentially checks whole-buffer and fragmented input. The
+UoT target differentially checks the owning and zero-copy packet parsers.
+`ANYTLS_FUZZ_SEED` selects deterministic randomized fragmentation in the
+stream and UoT churn integration tests.
+
+`tests/perf/anytls_bench.py` provides repeatable application-layer
+`throughput`, `latency`, `mux`, `stream-churn`, and `uot-domain-churn`
+benchmarks. Its JSON separates useful payload bytes from AnyTLS frame bytes;
+TLS, TCP, and link-layer byte counts must be measured separately from a pcap.
+Run `python3 tests/perf/anytls_bench.py --help` for the required endpoint and
+workload parameters.
+
 ## Protocol Reference
 
 See [`docs/protocol.md`](./docs/protocol.md) for the AnyTLS v2 protocol specification.
@@ -271,6 +305,11 @@ stream `log_format` / `access_log`:
 | `$anytls_user` | authenticated user name; `-` when not authenticated |
 | `$anytls_version` | client AnyTLS version after SETTINGS; `-` when unavailable |
 | `$anytls_auth` | auth result (`ok`, `fallback`, `timeout`, `error`); `-` when unavailable |
+| `$anytls_peak_active_streams` | peak concurrent streams in the session |
+| `$anytls_peak_pending_input` | peak queued client-to-upstream bytes |
+| `$anytls_peak_pending_output` | peak queued upstream-to-client frame bytes |
+| `$anytls_peak_frames` | peak queued output frame count |
+| `$anytls_upstream_states_truncated` | upstream state entries omitted by `anytls_max_upstream_states` |
 
 Example:
 

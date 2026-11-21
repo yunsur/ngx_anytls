@@ -92,6 +92,59 @@ ngx_anytls_variable_auth(ngx_stream_session_t *s,
     return NGX_OK;
 }
 
+static ngx_int_t
+ngx_anytls_variable_uint(ngx_stream_session_t *s,
+    ngx_stream_variable_value_t *v, uintptr_t data)
+{
+    ngx_anytls_connection_t *ac;
+    ngx_str_t value;
+    u_char *last;
+
+    ac = ngx_stream_get_module_ctx(s, ngx_stream_anytls_module);
+    if (ac == NULL) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    value.data = ngx_pnalloc(s->connection->pool, NGX_INT_T_LEN);
+    if (value.data == NULL) {
+        return NGX_ERROR;
+    }
+    last = ngx_sprintf(value.data, "%ui",
+        *(ngx_uint_t *) ((u_char *) ac + data));
+    value.len = (size_t) (last - value.data);
+    ngx_anytls_variable_set(v, &value);
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_anytls_variable_size(ngx_stream_session_t *s,
+    ngx_stream_variable_value_t *v, uintptr_t data)
+{
+    ngx_anytls_connection_t *ac;
+    ngx_str_t value;
+    u_char *last;
+
+    ac = ngx_stream_get_module_ctx(s, ngx_stream_anytls_module);
+    if (ac == NULL) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    value.data = ngx_pnalloc(s->connection->pool, NGX_INT_T_LEN);
+    if (value.data == NULL) {
+        return NGX_ERROR;
+    }
+    last = ngx_sprintf(value.data, "%uz",
+        *(size_t *) ((u_char *) ac + data));
+    value.len = (size_t) (last - value.data);
+    ngx_anytls_variable_set(v, &value);
+
+    return NGX_OK;
+}
+
 
 /* NOCACHEABLE: the value changes with connection state (not-found
  * before auth, user name after), so early evaluations in limit_conn /
@@ -104,6 +157,25 @@ static ngx_stream_variable_t ngx_anytls_variables[] = {
       offsetof(ngx_anytls_connection_t, version_text),
       NGX_STREAM_VAR_NOCACHEABLE, 0 },
     { ngx_string("anytls_auth"), NULL, ngx_anytls_variable_auth, 0,
+      NGX_STREAM_VAR_NOCACHEABLE, 0 },
+    { ngx_string("anytls_peak_active_streams"), NULL,
+      ngx_anytls_variable_uint,
+      offsetof(ngx_anytls_connection_t, peak_active_streams),
+      NGX_STREAM_VAR_NOCACHEABLE, 0 },
+    { ngx_string("anytls_peak_pending_input"), NULL,
+      ngx_anytls_variable_size,
+      offsetof(ngx_anytls_connection_t, peak_pending_input),
+      NGX_STREAM_VAR_NOCACHEABLE, 0 },
+    { ngx_string("anytls_peak_pending_output"), NULL,
+      ngx_anytls_variable_size,
+      offsetof(ngx_anytls_connection_t, peak_pending_output),
+      NGX_STREAM_VAR_NOCACHEABLE, 0 },
+    { ngx_string("anytls_peak_frames"), NULL, ngx_anytls_variable_uint,
+      offsetof(ngx_anytls_connection_t, peak_frames),
+      NGX_STREAM_VAR_NOCACHEABLE, 0 },
+    { ngx_string("anytls_upstream_states_truncated"), NULL,
+      ngx_anytls_variable_uint,
+      offsetof(ngx_anytls_connection_t, upstream_states_truncated),
       NGX_STREAM_VAR_NOCACHEABLE, 0 },
     { ngx_null_string, NULL, NULL, 0, 0, 0 }
 };

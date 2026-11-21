@@ -111,6 +111,26 @@ test_uot_domain_packet(void)
 }
 
 static void
+test_uot_domain_packet_ref_borrows_input(void)
+{
+    u_char data[] = { 0x02, 3, 'a', 'b', 'c', 0x00, 0x50, 0x00, 0x02,
+                      'x', 'y' };
+    ngx_anytls_addr_t addr;
+    u_char *payload;
+    size_t payload_len, consumed;
+
+    ASSERT_EQ(ngx_anytls_parse_uot_packet_ref(data, sizeof(data), &addr,
+                                              &payload, &payload_len,
+                                              &consumed),
+              NGX_OK);
+    ASSERT_EQ(addr.host.data, data + 2);
+    ASSERT_EQ(addr.host.len, 3u);
+    ASSERT_EQ(payload, data + 9);
+    ASSERT_EQ(payload_len, 2u);
+    ASSERT_EQ(consumed, sizeof(data));
+}
+
+static void
 test_uot_truncated_payload(void)
 {
     u_char data[] = { 0x00, 127, 0, 0, 1, 0x00, 0x35, 0x00, 0x05, 'h' };
@@ -137,6 +157,7 @@ run_all_tests(void)
     test_uot_ipv4_packet();
     test_uot_domain_packet();
     test_uot_truncated_payload();
+    test_uot_domain_packet_ref_borrows_input();
 
     ngx_destroy_pool(pool);
 }

@@ -110,13 +110,57 @@ test_wrong_hash_fallback(void)
 }
 
 static void
+test_wrong_hash_preserves_unconsumed_tail(void)
+{
+    u_char data[34 + 1024];
+    u_char replay[sizeof(data)];
+    ngx_anytls_auth_step_t r;
+
+    memset(data, 'X', 34);
+    memset(data + 34, 'T', sizeof(data) - 34);
+
+    r = ngx_anytls_auth_process(ac, data, sizeof(data));
+    ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_FALLBACK);
+    ASSERT_EQ(r.consumed, 34u);
+    ASSERT_EQ(r.fallback_replay_len, 34u);
+
+    memcpy(replay, r.fallback_replay, r.fallback_replay_len);
+    memcpy(replay + r.fallback_replay_len, data + r.consumed,
+           sizeof(data) - r.consumed);
+    ASSERT_MEM(replay, data, sizeof(data));
+}
+
+
+static void
+test_auth_prefix_fragmented_at_every_byte(void)
+{
+    u_char data[34];
+    ngx_anytls_auth_step_t r;
+    size_t i;
+
+    memcpy(data, fuzz_password_hash, 32);
+    data[32] = 0;
+    data[33] = 0;
+
+    for (i = 0; i < sizeof(data); i++) {
+        r = ngx_anytls_auth_process(ac, data + i, 1);
+        ASSERT_EQ(r.consumed, 1u);
+        ASSERT_EQ((int) r.result,
+                  i + 1 == sizeof(data)
+                  ? (int) NGX_ANYTLS_AUTH_OK
+                  : (int) NGX_ANYTLS_AUTH_MORE);
+    }
+}
+
+
+static void
 test_max_padding_waits_for_data(void)
 {
     u_char data[34];
     ngx_anytls_auth_step_t r;
 
-    /* 0xFFFF is the uint16_t max: need = 34 + 65535 = AUTH_BUF_SIZE,
-     * so it does not trip the ERROR guard; auth waits for the padding. */
+    /* 0xFFFF is the uint16_t max; auth must wait for all padding without
+     * retaining the padding bytes. */
     memcpy(data, fuzz_password_hash, 32);
     data[32] = 0xff;
     data[33] = 0xff;
@@ -124,6 +168,45 @@ test_max_padding_waits_for_data(void)
     r = ngx_anytls_auth_process(ac, data, sizeof(data));
     ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_MORE);
 }
+
+static void
+test_max_padding_split_leaves_following_frame(void)
+{
+    u_char prefix[34];
+    u_char chunk[4096 + NGX_ANYTLS_FRAME_HEADER_LEN];
+    u_char frame[NGX_ANYTLS_FRAME_HEADER_LEN];
+    ngx_anytls_auth_step_t r;
+    size_t remaining, n;
+
+    memcpy(prefix, fuzz_password_hash, 32);
+    prefix[32] = 0xff;
+    prefix[33] = 0xff;
+
+    r = ngx_anytls_auth_process(ac, prefix, sizeof(prefix));
+    ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_MORE);
+    ASSERT_EQ(r.consumed, sizeof(prefix));
+
+    memset(chunk, 'p', sizeof(chunk));
+    ASSERT_NOTNULL(ngx_anytls_write_frame_header(frame,
+                                                 NGX_ANYTLS_CMD_SETTINGS,
+                                                 0, 0));
+
+    remaining = 65535;
+    while (remaining > 4096) {
+        r = ngx_anytls_auth_process(ac, chunk, 4096);
+        ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_MORE);
+        ASSERT_EQ(r.consumed, 4096u);
+        remaining -= 4096;
+    }
+
+    n = remaining;
+    memcpy(chunk + n, frame, sizeof(frame));
+    r = ngx_anytls_auth_process(ac, chunk, n + sizeof(frame));
+    ASSERT_EQ((int) r.result, (int) NGX_ANYTLS_AUTH_OK);
+    ASSERT_EQ(r.consumed, n);
+    ASSERT_MEM(chunk + r.consumed, frame, sizeof(frame));
+}
+
 
 static void
 test_padding_split_keeps_match(void)
@@ -159,7 +242,10 @@ run_all_tests(void)
     set_up();   test_partial_input_more();
     set_up();   test_split_accumulation();
     set_up();   test_wrong_hash_fallback();
+    set_up();   test_wrong_hash_preserves_unconsumed_tail();
+    set_up();   test_auth_prefix_fragmented_at_every_byte();
     set_up();   test_max_padding_waits_for_data();
+    set_up();   test_max_padding_split_leaves_following_frame();
     set_up();   test_padding_split_keeps_match();
 
     ngx_destroy_pool(pool);

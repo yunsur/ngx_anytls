@@ -11,12 +11,12 @@
 
 extern ngx_module_t ngx_stream_anytls_module;
 
-#define NGX_ANYTLS_AUTH_BUF_SIZE       (32 + 2 + 65535)
 #define NGX_ANYTLS_READ_BUF_SIZE       65536
 #define NGX_ANYTLS_STREAM_POOL_SIZE    4096
 #define NGX_ANYTLS_DEFAULT_BUF_SIZE    65535
 #define NGX_ANYTLS_DEFAULT_MAX_STREAMS 1024
 #define NGX_ANYTLS_DEFAULT_MAX_UOT_STREAMS 64
+#define NGX_ANYTLS_DEFAULT_MAX_UPSTREAM_STATES 64
 #define NGX_ANYTLS_DEFAULT_MAX_PENDING (8 * 1024 * 1024)
 #define NGX_ANYTLS_DEFAULT_MAX_PENDING_INPUT (8 * 1024 * 1024)
 #define NGX_ANYTLS_DEFAULT_UOT_PENDING_PACKETS 256
@@ -24,9 +24,11 @@ extern ngx_module_t ngx_stream_anytls_module;
 #define NGX_ANYTLS_DEFAULT_UOT_IDLE_TIMEOUT 300000
 #define NGX_ANYTLS_MAX_OUT_FRAMES      10000
 #define NGX_ANYTLS_MAX_STREAM_FRAMES   1024
-#define NGX_ANYTLS_MAX_FREE_FRAMES     1024
-#define NGX_ANYTLS_MAX_FREE_READ_BUFS  32
-#define NGX_ANYTLS_MAX_FREE_PENDING_IN 64
+#define NGX_ANYTLS_MAX_FREE_FRAMES     32
+#define NGX_ANYTLS_FREE_READ_BUFS_BYTES (64 * 1024)
+#define NGX_ANYTLS_FREE_PENDING_IN_BYTES (64 * 1024)
+#define NGX_ANYTLS_MAX_FREE_PENDING_NODES 8
+#define NGX_ANYTLS_MAX_FREE_PENDING_IN_SIZE (16 * 1024)
 #define NGX_ANYTLS_MIN_SCHEDULE_FRAMES 16
 #define NGX_ANYTLS_MAX_SCHEDULE_BYTES  (1024 * 1024)
 #define NGX_ANYTLS_MAX_USERS           64
@@ -87,6 +89,7 @@ typedef struct {
     off_t                    bytes_received;
     unsigned                 opened:1;
     unsigned                 finalized:1;
+    unsigned                 truncated:1;
 } ngx_anytls_upstream_state_tracker_t;
 
 void ngx_anytls_client_read_handler(ngx_event_t *rev);

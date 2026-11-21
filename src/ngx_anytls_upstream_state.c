@@ -55,12 +55,28 @@ ngx_anytls_upstream_state_open(ngx_stream_session_t *s,
     ngx_anytls_upstream_state_tracker_t *tracker, const ngx_str_t *peer)
 {
     ngx_stream_upstream_state_t *state;
+    ngx_anytls_connection_t *ac;
 
     if (s == NULL || s->connection == NULL || tracker == NULL) {
         return NGX_ERROR;
     }
 
     if (tracker->opened) {
+        return NGX_OK;
+    }
+
+    if (tracker->truncated) {
+        return NGX_OK;
+    }
+
+    ac = ngx_stream_get_module_ctx(s, ngx_stream_anytls_module);
+    if (ac != NULL
+        && ac->conf->max_upstream_states != 0
+        && s->upstream_states != NULL
+        && s->upstream_states->nelts >= ac->conf->max_upstream_states)
+    {
+        tracker->truncated = 1;
+        ac->upstream_states_truncated++;
         return NGX_OK;
     }
 

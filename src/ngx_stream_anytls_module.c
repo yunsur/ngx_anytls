@@ -28,6 +28,8 @@ static char *ngx_stream_anytls_size_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_stream_anytls_num_slot(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+static char *ngx_stream_anytls_uint_slot(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
 static void ngx_stream_anytls_handler(ngx_stream_session_t *s);
 
 static ngx_command_t ngx_stream_anytls_commands[] = {
@@ -107,6 +109,13 @@ static ngx_command_t ngx_stream_anytls_commands[] = {
       ngx_stream_anytls_num_slot,
       NGX_STREAM_SRV_CONF_OFFSET,
       offsetof(ngx_stream_anytls_srv_conf_t, max_streams),
+      NULL },
+
+    { ngx_string("anytls_max_upstream_states"),
+      NGX_STREAM_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_stream_anytls_uint_slot,
+      NGX_STREAM_SRV_CONF_OFFSET,
+      offsetof(ngx_stream_anytls_srv_conf_t, max_upstream_states),
       NULL },
 
     { ngx_string("anytls_max_uot_streams"),
@@ -201,6 +210,7 @@ ngx_stream_anytls_create_srv_conf(ngx_conf_t *cf)
     conf->fallback_proxy_protocol_set = NGX_CONF_UNSET;
     conf->buffer_size = NGX_CONF_UNSET_SIZE;
     conf->max_streams = NGX_CONF_UNSET_UINT;
+    conf->max_upstream_states = NGX_CONF_UNSET_UINT;
     conf->max_uot_streams = NGX_CONF_UNSET_UINT;
     conf->max_pending_output = NGX_CONF_UNSET_SIZE;
     conf->max_pending_input = NGX_CONF_UNSET_SIZE;
@@ -258,6 +268,9 @@ ngx_stream_anytls_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
                            conf->max_streams);
         conf->max_streams = 65536;
     }
+    ngx_conf_merge_uint_value(conf->max_upstream_states,
+                              prev->max_upstream_states,
+                              NGX_ANYTLS_DEFAULT_MAX_UPSTREAM_STATES);
 
     ngx_conf_merge_uint_value(conf->max_uot_streams, prev->max_uot_streams,
                               NGX_ANYTLS_DEFAULT_MAX_UOT_STREAMS);
@@ -529,6 +542,28 @@ ngx_stream_anytls_num_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     value = cf->args->elts;
     n = ngx_atoi(value[1].data, value[1].len);
     if (n == NGX_ERROR || n < 1) {
+        return "invalid value";
+    }
+    *field = (ngx_uint_t) n;
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_stream_anytls_uint_slot(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    char *p = conf;
+    ngx_str_t *value;
+    ngx_int_t n;
+    ngx_uint_t *field;
+
+    field = (ngx_uint_t *) (p + cmd->offset);
+    if (*field != NGX_CONF_UNSET_UINT) {
+        return "is duplicate";
+    }
+
+    value = cf->args->elts;
+    n = ngx_atoi(value[1].data, value[1].len);
+    if (n == NGX_ERROR || n < 0) {
         return "invalid value";
     }
     *field = (ngx_uint_t) n;

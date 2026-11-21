@@ -4,8 +4,6 @@
 #include <ngx_config.h>
 #include <ngx_core.h>
 
-#define NGX_ANYTLS_AUTH_BUF_SIZE       (32 + 2 + 65535)
-
 typedef enum {
     NGX_ANYTLS_AUTH_MORE = 0,
     NGX_ANYTLS_AUTH_OK,

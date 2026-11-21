@@ -45,16 +45,25 @@ ngx_anytls_fallback_bad_gateway(ngx_anytls_connection_t *ac)
 }
 
 ngx_int_t
-ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
-    size_t raw_len)
+ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, const u_char *prefix,
+    size_t prefix_len, const u_char *tail, size_t tail_len)
 {
     ngx_str_t target;
     ngx_url_t url;
     ngx_buf_t *b;
     ngx_int_t rc;
+    size_t replay_len;
 
     if (ac->conf->fallback == NULL) {
         return NGX_DECLINED;
+    }
+
+    if (prefix_len > (size_t) -1 - tail_len) {
+        return NGX_ERROR;
+    }
+    replay_len = prefix_len + tail_len;
+    if (replay_len > (size_t) -1 - 128) {
+        return NGX_ERROR;
     }
 
     if (ngx_stream_complex_value(ac->session, ac->conf->fallback, &target)
@@ -107,7 +116,7 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
                                              &ac->fallback_state);
     }
 
-    b = ngx_create_temp_buf(ac->pool, raw_len + 128);
+    b = ngx_create_temp_buf(ac->pool, replay_len + 128);
     if (b == NULL) {
         return NGX_ERROR;
     }
@@ -124,7 +133,8 @@ ngx_anytls_fallback_start(ngx_anytls_connection_t *ac, u_char *raw,
             b->last = p;
         }
     }
-    b->last = ngx_cpymem(b->last, raw, raw_len);
+    b->last = ngx_cpymem(b->last, prefix, prefix_len);
+    b->last = ngx_cpymem(b->last, tail, tail_len);
     ac->fallback_replay = b;
     ac->state = NGX_ANYTLS_CONN_FALLBACK;
 

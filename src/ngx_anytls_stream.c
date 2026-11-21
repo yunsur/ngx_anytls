@@ -62,11 +62,46 @@ ngx_anytls_stream_is_closed_by_protocol(ngx_anytls_stream_t *st)
 
 #define NGX_ANYTLS_STREAM_HT_TOMB ((void *) 1)
 
+static ngx_int_t
+ngx_anytls_stream_ht_ensure(ngx_anytls_connection_t *ac)
+{
+    uint32_t size;
+
+    if (ac->stream_ht != NULL) {
+        return NGX_OK;
+    }
+
+    size = (uint32_t) (ac->conf->max_streams * 2);
+    size--;
+    size |= size >> 1;
+    size |= size >> 2;
+    size |= size >> 4;
+    size |= size >> 8;
+    size |= size >> 16;
+    size++;
+    if (size < 64) {
+        size = 64;
+    }
+
+    ac->stream_ht = ngx_pcalloc(ac->pool,
+                                sizeof(*ac->stream_ht) * size);
+    if (ac->stream_ht == NULL) {
+        return NGX_ERROR;
+    }
+    ac->stream_ht_mask = size - 1;
+
+    return NGX_OK;
+}
+
 static ngx_anytls_stream_t *
 ngx_anytls_stream_ht_find(ngx_anytls_connection_t *ac, uint32_t id)
 {
     uint32_t idx, i;
     ngx_anytls_stream_t *st;
+
+    if (ac->stream_ht == NULL) {
+        return NULL;
+    }
 
     idx = id & ac->stream_ht_mask;
 
@@ -91,6 +126,10 @@ ngx_anytls_stream_ht_insert(ngx_anytls_connection_t *ac,
 {
     uint32_t idx, i;
 
+    if (ngx_anytls_stream_ht_ensure(ac) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
     idx = st->id & ac->stream_ht_mask;
 
     for (i = 0; i <= ac->stream_ht_mask; i++) {
@@ -112,12 +151,15 @@ ngx_anytls_stream_alloc(ngx_anytls_connection_t *ac, uint32_t id)
 {
     ngx_anytls_stream_t *st;
 
-    st = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_stream_t));
-    if (st == NULL) {
+    if (ngx_anytls_stream_ht_ensure(ac) != NGX_OK) {
         return NULL;
     }
 
-    st->pool = NULL;
+    st = ngx_alloc(sizeof(ngx_anytls_stream_t), ac->log);
+    if (st == NULL) {
+        return NULL;
+    }
+    ngx_memzero(st, sizeof(ngx_anytls_stream_t));
     st->ac = ac;
     st->id = id;
     st->state = NGX_ANYTLS_STREAM_INIT;
@@ -133,11 +175,15 @@ ngx_anytls_stream_alloc(ngx_anytls_connection_t *ac, uint32_t id)
     ngx_queue_init(&st->uot_pending);
 
     if (ngx_anytls_stream_ht_insert(ac, st) != NGX_OK) {
+        ngx_free(st);
         return NULL;
     }
     ngx_queue_insert_tail(&ac->stream_list, &st->link);
     ac->active_streams++;
 
+    if (ac->active_streams > ac->peak_active_streams) {
+        ac->peak_active_streams = ac->active_streams;
+    }
     return st;
 }
 
@@ -153,9 +199,40 @@ ngx_anytls_stream_ht_remove(ngx_anytls_connection_t *ac,
     for (i = 0; i <= ac->stream_ht_mask; i++) {
         if (ac->stream_ht[idx] == st) {
             ac->stream_ht[idx] = NGX_ANYTLS_STREAM_HT_TOMB;
+            ac->stream_ht_tombstones++;
             return;
         }
         idx = (idx + 1) & ac->stream_ht_mask;
+    }
+}
+
+static void
+ngx_anytls_stream_ht_compact(ngx_anytls_connection_t *ac)
+{
+    ngx_queue_t *q;
+    ngx_anytls_stream_t *st;
+
+    if (ac->stream_ht == NULL) {
+        return;
+    }
+
+    if (ac->active_streams != 0
+        && (ac->stream_ht_tombstones < 64
+            || ac->stream_ht_tombstones <= ac->active_streams))
+    {
+        return;
+    }
+
+    ngx_memzero(ac->stream_ht,
+                sizeof(*ac->stream_ht) * (ac->stream_ht_mask + 1));
+    ac->stream_ht_tombstones = 0;
+
+    for (q = ngx_queue_head(&ac->stream_list);
+         q != ngx_queue_sentinel(&ac->stream_list);
+         q = ngx_queue_next(q))
+    {
+        st = ngx_queue_data(q, ngx_anytls_stream_t, link);
+        (void) ngx_anytls_stream_ht_insert(ac, st);
     }
 }
 
@@ -299,7 +376,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
             ngx_anytls_transport_close(st->upstream);
             st->upstream = NULL;
         }
-        if (st->uot_counted) {
+        if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT || st->uot_counted) {
             ngx_anytls_uot_close(st);
         }
 
@@ -327,6 +404,8 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
 
     for (f = st->out; f; f = next) {
         next = f->next;
+        st->out = next;
+        f->next = NULL;
         if (ac->pending_output >= f->length) {
             ac->pending_output -= f->length;
         } else {
@@ -338,13 +417,12 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         if (st->queued_frames) {
             st->queued_frames--;
         }
-        if (f->own_payload && f->payload_buf.start) {
-            ngx_free(f->payload_buf.start);
+        if (st->pending_out >= f->length) {
+            st->pending_out -= f->length;
+        } else {
+            st->pending_out = 0;
         }
-        if (f->recycle_payload && f->payload) {
-            ngx_anytls_upstream_free_read_buf(ac, f->payload);
-            f->payload = NULL;
-        }
+        ngx_anytls_client_mux_discard_frame(ac, f);
     }
     st->out = NULL;
     st->out_last = &st->out;
@@ -354,14 +432,9 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_anytls_transport_close(st->upstream);
         st->upstream = NULL;
     }
-    if (st->uot_counted) {
+    if (st->upstream_type == NGX_ANYTLS_UPSTREAM_UOT || st->uot_counted) {
         ngx_anytls_uot_close(st);
     }
-    while (!ngx_queue_empty(&st->uot_pending)) {
-        ngx_queue_remove(ngx_queue_head(&st->uot_pending));
-    }
-    st->uot_pending_count = 0;
-    st->uot_pending_bytes = 0;
 
     ngx_anytls_upstream_discard_pending(st);
 
@@ -371,7 +444,11 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_queue_init(&st->closing_queue);
     }
     ngx_queue_remove(&st->link);
-    ngx_anytls_stream_ht_remove(ac, st);
     ac->active_streams--;
-    if (st->pool) { ngx_destroy_pool(st->pool); }
+    ngx_anytls_stream_ht_remove(ac, st);
+    ngx_anytls_stream_ht_compact(ac);
+    if (st->pool) {
+        ngx_destroy_pool(st->pool);
+    }
+    ngx_free(st);
 }

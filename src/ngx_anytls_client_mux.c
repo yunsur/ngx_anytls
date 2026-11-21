@@ -51,7 +51,10 @@ ngx_anytls_get_frame(ngx_anytls_connection_t *ac)
         return f;
     }
 
-    f = ngx_pcalloc(ac->pool, sizeof(ngx_anytls_out_frame_t));
+    f = ngx_alloc(sizeof(ngx_anytls_out_frame_t), ngx_anytls_conn_log(ac));
+    if (f != NULL) {
+        ngx_memzero(f, sizeof(ngx_anytls_out_frame_t));
+    }
     return f;
 }
 
@@ -97,9 +100,67 @@ ngx_anytls_free_frame(ngx_anytls_connection_t *ac, ngx_anytls_out_frame_t *f)
         f->next = ac->free_frames;
         ac->free_frames = f;
         ac->free_frames_count++;
+    } else {
+        ngx_free(f);
     }
 }
 
+
+void
+ngx_anytls_client_mux_discard_frame(ngx_anytls_connection_t *ac,
+    ngx_anytls_out_frame_t *f)
+{
+    if (f == NULL) {
+        return;
+    }
+
+    if (f->recycle_payload && f->payload) {
+        ngx_anytls_upstream_free_read_buf(ac, f->payload);
+        f->payload = NULL;
+    }
+
+    ngx_anytls_free_frame(ac, f);
+}
+
+
+void
+ngx_anytls_client_mux_destroy(ngx_anytls_connection_t *ac)
+{
+    ngx_anytls_out_frame_t *f, *next;
+
+    for (f = ac->control_out; f; f = next) {
+        next = f->next;
+        f->next = NULL;
+        ngx_anytls_client_mux_discard_frame(ac, f);
+    }
+    for (f = ac->data_out; f; f = next) {
+        next = f->next;
+        f->next = NULL;
+        ngx_anytls_client_mux_discard_frame(ac, f);
+    }
+    for (f = ac->sending; f; f = next) {
+        next = f->next;
+        f->next = NULL;
+        ngx_anytls_client_mux_discard_frame(ac, f);
+    }
+
+    ac->control_out = NULL;
+    ac->control_out_last = &ac->control_out;
+    ac->data_out = NULL;
+    ac->data_out_last = &ac->data_out;
+    ac->sending = NULL;
+    ac->sending_last = &ac->sending;
+    ac->unsent = NULL;
+
+    while (ac->free_frames) {
+        f = ac->free_frames;
+        ac->free_frames = f->next;
+        ngx_free(f);
+    }
+    ac->free_frames_count = 0;
+    ac->pending_output = 0;
+    ac->frames = 0;
+}
 
 static ngx_uint_t
 ngx_anytls_frame_strong_ref(ngx_uint_t cmd, ngx_anytls_stream_t *st)
@@ -273,6 +334,12 @@ ngx_anytls_queue_prepared_frame(ngx_anytls_connection_t *ac,
 
     ac->pending_output += f->length;
     ac->frames++;
+    if (ac->pending_output > ac->peak_pending_output) {
+        ac->peak_pending_output = ac->pending_output;
+    }
+    if (ac->frames > ac->peak_frames) {
+        ac->peak_frames = ac->frames;
+    }
 
     ngx_log_debug5(NGX_LOG_DEBUG_STREAM, ngx_anytls_conn_log(ac), 0,
                    "anytls: queue frame cmd=%d st=%ui len=%uz "

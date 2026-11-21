@@ -98,23 +98,34 @@ ngx_anytls_upstream_discard_pending(ngx_anytls_stream_t *st)
     ngx_anytls_pending_t *p, *n;
 
     p = st->pending_in;
-    while (p) {
-        n = p->next;
-        if (p->data) {
-            ngx_anytls_upstream_free_pending_buf(st->ac, p->data);
-        }
-        p = n;
-    }
+    st->pending_in = NULL;
+    st->pending_in_last = &st->pending_in;
 
     if (st->ac->pending_input >= st->pending_in_bytes) {
         st->ac->pending_input -= st->pending_in_bytes;
     } else {
         st->ac->pending_input = 0;
     }
-
-    st->pending_in = NULL;
-    st->pending_in_last = &st->pending_in;
     st->pending_in_bytes = 0;
+
+    while (p) {
+        n = p->next;
+        if (p->data) {
+            ngx_anytls_upstream_free_pending_buf(st->ac, p->data);
+        }
+        ngx_free(p);
+        p = n;
+    }
+
+    p = st->free_pending_in;
+    st->free_pending_in = NULL;
+    st->free_pending_in_count = 0;
+    while (p) {
+        n = p->next;
+        ngx_free(p);
+        p = n;
+    }
+
     if (st->input_blocked) {
         st->input_blocked = 0;
         st->input_exhausted = 0;
@@ -139,10 +150,12 @@ ngx_anytls_upstream_free_pending(ngx_anytls_stream_t *st,
     p->len = 0;
     p->sent = 0;
 
-    if (st->free_pending_in_count < NGX_ANYTLS_MAX_FREE_PENDING_IN) {
+    if (st->free_pending_in_count < NGX_ANYTLS_MAX_FREE_PENDING_NODES) {
         p->next = st->free_pending_in;
         st->free_pending_in = p;
         st->free_pending_in_count++;
+    } else {
+        ngx_free(p);
     }
 }
 
@@ -167,7 +180,11 @@ ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac, size_t len)
             } else {
                 ac->free_pending_bufs = hdr->next;
             }
-            ac->free_pending_bufs_count--;
+            if (ac->free_pending_buf_bytes >= hdr->cap) {
+                ac->free_pending_buf_bytes -= hdr->cap;
+            } else {
+                ac->free_pending_buf_bytes = 0;
+            }
             return hdr + 1;
         }
         prev = hdr;
@@ -189,10 +206,13 @@ ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac, void *data)
     ngx_anytls_pending_buf_hdr_t *hdr;
 
     hdr = (ngx_anytls_pending_buf_hdr_t *) data - 1;
-    if (ac->free_pending_bufs_count < NGX_ANYTLS_MAX_FREE_PENDING_IN) {
+    if (hdr->cap <= NGX_ANYTLS_MAX_FREE_PENDING_IN_SIZE
+        && hdr->cap <= NGX_ANYTLS_FREE_PENDING_IN_BYTES
+                            - ac->free_pending_buf_bytes)
+    {
         hdr->next = ac->free_pending_bufs;
         ac->free_pending_bufs = hdr;
-        ac->free_pending_bufs_count++;
+        ac->free_pending_buf_bytes += hdr->cap;
     } else {
         ngx_free(hdr);
     }
@@ -212,7 +232,13 @@ ngx_anytls_upstream_pop_read_buf(ngx_anytls_connection_t *ac,
 
         if ((size_t) (b->end - b->start) >= capacity) {
             *ll = cl->next;
-            ac->free_read_bufs_count--;
+            if (ac->free_read_buf_bytes
+                >= (size_t) (b->end - b->start))
+            {
+                ac->free_read_buf_bytes -= (size_t) (b->end - b->start);
+            } else {
+                ac->free_read_buf_bytes = 0;
+            }
             cl->next = NULL;
             b->pos = b->start + NGX_ANYTLS_FRAME_HEADER_LEN;
             b->last = b->pos;
@@ -277,20 +303,22 @@ void
 ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac, ngx_chain_t *cl)
 {
     ngx_chain_t **list;
-
+    size_t capacity;
     if (ac == NULL || cl == NULL) {
         return;
     }
 
-    if (ac->free_read_bufs_count < NGX_ANYTLS_MAX_FREE_READ_BUFS) {
-        list = ((size_t) (cl->buf->end - cl->buf->start)
-                <= NGX_ANYTLS_SMALL_READ_BUF_CAPACITY)
+    capacity = (size_t) (cl->buf->end - cl->buf->start);
+    if (capacity <= NGX_ANYTLS_FREE_READ_BUFS_BYTES
+                    - ac->free_read_buf_bytes)
+    {
+        list = (capacity <= NGX_ANYTLS_SMALL_READ_BUF_CAPACITY)
                ? &ac->free_read_bufs : &ac->free_read_bufs_large;
         cl->buf->pos = cl->buf->start + NGX_ANYTLS_FRAME_HEADER_LEN;
         cl->buf->last = cl->buf->pos;
         cl->next = *list;
         *list = cl;
-        ac->free_read_bufs_count++;
+        ac->free_read_buf_bytes += capacity;
 
     } else {
         ngx_free(cl->buf->start);
@@ -473,10 +501,10 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
         st->free_pending_in_count--;
         ngx_memzero(p, sizeof(ngx_anytls_pending_t));
     } else {
-        ngx_pool_t *pool;
-        pool = ngx_anytls_stream_pool(st);
-        if (pool == NULL) { return NGX_ERROR; }
-        p = ngx_pcalloc(pool, sizeof(ngx_anytls_pending_t));
+        p = ngx_alloc(sizeof(ngx_anytls_pending_t), st->ac->log);
+        if (p != NULL) {
+            ngx_memzero(p, sizeof(ngx_anytls_pending_t));
+        }
     }
     if (p == NULL) {
         return NGX_ERROR;
@@ -484,8 +512,7 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
 
     p->data = ngx_anytls_upstream_alloc_pending_buf(st->ac, len);
     if (p->data == NULL) {
-        p->next = st->free_pending_in;
-        st->free_pending_in = p;
+        ngx_anytls_upstream_free_pending(st, p);
         return NGX_ERROR;
     }
 
@@ -496,6 +523,9 @@ ngx_anytls_upstream_queue(ngx_anytls_stream_t *st, u_char *data, size_t len)
     st->pending_in_last = &p->next;
     st->pending_in_bytes += len;
     st->ac->pending_input += len;
+    if (st->ac->pending_input > st->ac->peak_pending_input) {
+        st->ac->peak_pending_input = st->ac->pending_input;
+    }
 
     if (st->upstream && st->upstream->write) {
         ngx_post_event(st->upstream->write, &ngx_posted_events);

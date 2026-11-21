@@ -5,6 +5,7 @@
 #include <ngx_core.h>
 
 #define NGX_ANYTLS_AUTH_HASH_LEN       32
+#define NGX_ANYTLS_AUTH_PREFIX_LEN     (NGX_ANYTLS_AUTH_HASH_LEN + 2)
 #define NGX_ANYTLS_FRAME_HEADER_LEN    7
 #define NGX_ANYTLS_MAX_FRAME_DATA      65535
 #define NGX_ANYTLS_VERSION             2
