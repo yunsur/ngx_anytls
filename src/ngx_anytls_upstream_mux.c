@@ -35,6 +35,7 @@ static void ngx_anytls_upstream_mux_unblock_read(
     ngx_anytls_connection_t *ac, ngx_anytls_stream_t *st);
 
 
+#if (NGX_DEBUG)
 /* Return the number of elements in a ngx_queue_t.
  * nginx core does not provide this; it is needed for debug logging. */
 static ngx_inline ngx_uint_t
@@ -52,6 +53,7 @@ ngx_queue_size(ngx_queue_t *q)
     }
     return n;
 }
+#endif
 
 
 static ngx_int_t ngx_anytls_upstream_mux_drain_reads(

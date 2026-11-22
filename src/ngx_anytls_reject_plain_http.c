@@ -276,8 +276,6 @@ ngx_anytls_reject_plain_http_send_page(ngx_stream_session_t *s,
      * consumes the data it read; c->recv may already be the ssl
      * variant, which cannot read before the handshake) */
     {
-        ssize_t  drained = 0;
-
         for ( ;; ) {
             ssize_t  d;
 
@@ -285,7 +283,6 @@ ngx_anytls_reject_plain_http_send_page(ngx_stream_session_t *s,
             if (d <= 0) {
                 break;
             }
-            drained += d;
         }
     }
 
