@@ -96,3 +96,8 @@ add_anytls_fuzz(client_buffer
     "${MODULE_SRC}/ngx_anytls_protocol.c"
     stub/ngx_stub.c
 )
+
+add_executable(fuzz_cache_budget targets/fuzz_cache_budget.c)
+target_include_directories(fuzz_cache_budget PRIVATE "${MODULE_SRC}")
+target_compile_options(fuzz_cache_budget PRIVATE ${FUZZ_FLAGS})
+target_link_options(fuzz_cache_budget PRIVATE ${FUZZ_LINK_FLAGS})

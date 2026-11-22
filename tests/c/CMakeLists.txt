@@ -49,4 +49,8 @@ foreach(name frame settings padding socksaddr auth client_buffer)
     add_test(NAME test_${name} COMMAND test_${name})
 endforeach()
 
+add_executable(test_cache_budget test_cache_budget.c)
+target_include_directories(test_cache_budget PRIVATE "${MODULE_SRC}")
+add_test(NAME test_cache_budget COMMAND test_cache_budget)
+
 enable_testing()

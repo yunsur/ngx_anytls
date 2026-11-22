@@ -147,14 +147,16 @@ ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
         ngx_free(cl->buf);
         ngx_free(cl);
     }
-    ac->free_read_buf_bytes = 0;
+    ac->free_read_buf_cache.bytes = 0;
+    ac->free_read_buf_cache.objects = 0;
 
     while (ac->free_pending_bufs) {
         void *next = *(void **) ac->free_pending_bufs;
         ngx_free(ac->free_pending_bufs);
         ac->free_pending_bufs = next;
     }
-    ac->free_pending_buf_bytes = 0;
+    ac->free_pending_buf_cache.bytes = 0;
+    ac->free_pending_buf_cache.objects = 0;
 
     if (ac->fallback) {
         ngx_anytls_transport_close(ac->fallback);

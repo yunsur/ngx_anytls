@@ -170,6 +170,7 @@ static void *
 ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac, size_t len)
 {
     ngx_anytls_pending_buf_hdr_t *hdr, *prev;
+    size_t allocation_size;
 
     prev = NULL;
     hdr = ac->free_pending_bufs;
@@ -180,11 +181,9 @@ ngx_anytls_upstream_alloc_pending_buf(ngx_anytls_connection_t *ac, size_t len)
             } else {
                 ac->free_pending_bufs = hdr->next;
             }
-            if (ac->free_pending_buf_bytes >= hdr->cap) {
-                ac->free_pending_buf_bytes -= hdr->cap;
-            } else {
-                ac->free_pending_buf_bytes = 0;
-            }
+            allocation_size = sizeof(*hdr) + hdr->cap;
+            ngx_anytls_cache_budget_remove(&ac->free_pending_buf_cache,
+                                            allocation_size);
             return hdr + 1;
         }
         prev = hdr;
@@ -204,15 +203,18 @@ static void
 ngx_anytls_upstream_free_pending_buf(ngx_anytls_connection_t *ac, void *data)
 {
     ngx_anytls_pending_buf_hdr_t *hdr;
+    size_t allocation_size;
 
     hdr = (ngx_anytls_pending_buf_hdr_t *) data - 1;
+    allocation_size = sizeof(*hdr) + hdr->cap;
     if (hdr->cap <= NGX_ANYTLS_MAX_FREE_PENDING_IN_SIZE
-        && hdr->cap <= NGX_ANYTLS_FREE_PENDING_IN_BYTES
-                            - ac->free_pending_buf_bytes)
+        && ngx_anytls_cache_budget_add(&ac->free_pending_buf_cache,
+                                       allocation_size,
+                                       NGX_ANYTLS_FREE_PENDING_IN_BYTES,
+                                       NGX_ANYTLS_MAX_FREE_PENDING_BUFS))
     {
         hdr->next = ac->free_pending_bufs;
         ac->free_pending_bufs = hdr;
-        ac->free_pending_buf_bytes += hdr->cap;
     } else {
         ngx_free(hdr);
     }
@@ -225,6 +227,7 @@ ngx_anytls_upstream_pop_read_buf(ngx_anytls_connection_t *ac,
 {
     ngx_chain_t *cl, **ll;
     ngx_buf_t   *b;
+    size_t       allocation_size;
 
     for (ll = list; *ll; ll = &(*ll)->next) {
         cl = *ll;
@@ -232,13 +235,10 @@ ngx_anytls_upstream_pop_read_buf(ngx_anytls_connection_t *ac,
 
         if ((size_t) (b->end - b->start) >= capacity) {
             *ll = cl->next;
-            if (ac->free_read_buf_bytes
-                >= (size_t) (b->end - b->start))
-            {
-                ac->free_read_buf_bytes -= (size_t) (b->end - b->start);
-            } else {
-                ac->free_read_buf_bytes = 0;
-            }
+            allocation_size = sizeof(*cl) + sizeof(*b)
+                              + (size_t) (b->end - b->start);
+            ngx_anytls_cache_budget_remove(&ac->free_read_buf_cache,
+                                            allocation_size);
             cl->next = NULL;
             b->pos = b->start + NGX_ANYTLS_FRAME_HEADER_LEN;
             b->last = b->pos;
@@ -303,14 +303,17 @@ void
 ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac, ngx_chain_t *cl)
 {
     ngx_chain_t **list;
-    size_t capacity;
+    size_t capacity, allocation_size;
     if (ac == NULL || cl == NULL) {
         return;
     }
 
     capacity = (size_t) (cl->buf->end - cl->buf->start);
-    if (capacity <= NGX_ANYTLS_FREE_READ_BUFS_BYTES
-                    - ac->free_read_buf_bytes)
+    allocation_size = sizeof(*cl) + sizeof(*cl->buf) + capacity;
+    if (ngx_anytls_cache_budget_add(&ac->free_read_buf_cache,
+                                    allocation_size,
+                                    NGX_ANYTLS_FREE_READ_BUFS_BYTES,
+                                    NGX_ANYTLS_MAX_FREE_READ_BUFS))
     {
         list = (capacity <= NGX_ANYTLS_SMALL_READ_BUF_CAPACITY)
                ? &ac->free_read_bufs : &ac->free_read_bufs_large;
@@ -318,7 +321,6 @@ ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac, ngx_chain_t *cl)
         cl->buf->last = cl->buf->pos;
         cl->next = *list;
         *list = cl;
-        ac->free_read_buf_bytes += capacity;
 
     } else {
         ngx_free(cl->buf->start);

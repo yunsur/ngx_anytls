@@ -17,6 +17,7 @@
 #include "ngx_anytls_session_core.h"
 #include "ngx_anytls_protocol.h"
 #include "ngx_anytls_client_buffer.h"
+#include "ngx_anytls_cache_budget.h"
 #include "ngx_anytls_socksaddr.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_upstream_state.h"
@@ -113,9 +114,9 @@ struct ngx_anytls_connection_s {
 
     ngx_chain_t             *free_read_bufs;
     ngx_chain_t             *free_read_bufs_large;
-    size_t                   free_read_buf_bytes;
+    ngx_anytls_cache_budget_t free_read_buf_cache;
     void                    *free_pending_bufs;
-    size_t                   free_pending_buf_bytes;
+    ngx_anytls_cache_budget_t free_pending_buf_cache;
 
     ngx_anytls_client_buffer_t  client_buffer;
     size_t                   read_buf_size;
