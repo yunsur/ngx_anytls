@@ -27,7 +27,6 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
 {
     ngx_connection_t *c;
     ngx_anytls_connection_t *ac;
-    size_t read_size;
 
     c = s->connection;
     ac = ngx_pcalloc(c->pool, sizeof(ngx_anytls_connection_t));
@@ -44,12 +43,9 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
     ac->state = NGX_ANYTLS_CONN_AUTH;
     ngx_anytls_session_core_init(&ac->session_core, conf->padding_md5,
                                   conf->padding_data, conf->padding_data_len);
-    ac->read_buf_capacity = NGX_ANYTLS_FRAME_HEADER_LEN
-                            + NGX_ANYTLS_MAX_FRAME_DATA;
-    read_size = ngx_min(conf->buffer_size, ac->read_buf_capacity);
-    ac->read_buf_size = read_size;
-    ac->read_buf = ngx_pnalloc(c->pool, ac->read_buf_capacity);
-    if (ac->read_buf == NULL) {
+    ac->read_buf_size = ngx_min(conf->buffer_size,
+                                NGX_ANYTLS_CLIENT_BUFFER_MAX_SIZE);
+    if (ngx_anytls_client_buffer_init(&ac->client_buffer, c->log) != NGX_OK) {
         ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
         return;
     }
@@ -155,6 +151,8 @@ ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
         ngx_anytls_transport_close(ac->fallback);
         ac->fallback = NULL;
     }
+
+    ngx_anytls_client_buffer_destroy(&ac->client_buffer);
 
     ngx_stream_finalize_session(ac->session, rc);
 }

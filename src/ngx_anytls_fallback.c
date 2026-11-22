@@ -222,6 +222,11 @@ ngx_anytls_fallback_write(ngx_anytls_connection_t *ac, ngx_connection_t *c)
             || ngx_anytls_transport_arm_read(ac->fallback) != NGX_OK)
         {
             ngx_anytls_finalize(ac);
+            return;
+        }
+
+        if (ac->client->read->ready && !ac->client->read->posted) {
+            ngx_post_event(ac->client->read, &ngx_posted_next_events);
         }
 
         return;

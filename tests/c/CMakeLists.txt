@@ -38,10 +38,11 @@ set(NGX_ANYTLS_UNIT_SRCS
     "${MODULE_SRC}/ngx_anytls_socksaddr.c"
     "${MODULE_SRC}/ngx_anytls_padding.c"
     "${MODULE_SRC}/ngx_anytls_auth.c"
+    "${MODULE_SRC}/ngx_anytls_client_buffer.c"
     "${FUZZ_STUB}"
 )
 
-foreach(name frame settings padding socksaddr auth)
+foreach(name frame settings padding socksaddr auth client_buffer)
     add_executable(test_${name} test_${name}.c ${NGX_ANYTLS_UNIT_SRCS})
     target_include_directories(test_${name} PRIVATE ${NGX_INCLUDES})
     target_link_libraries(test_${name} PRIVATE crypto)

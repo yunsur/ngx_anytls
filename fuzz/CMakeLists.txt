@@ -89,3 +89,10 @@ add_anytls_fuzz(auth
     ${NGX_ANYTLS_FUZZ_SRCS}
     stub/ngx_stub.c
 )
+
+add_anytls_fuzz(client_buffer
+    targets/fuzz_client_buffer.c
+    "${MODULE_SRC}/ngx_anytls_client_buffer.c"
+    "${MODULE_SRC}/ngx_anytls_protocol.c"
+    stub/ngx_stub.c
+)

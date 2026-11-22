@@ -31,6 +31,9 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     ngx_int_t rc;
     ngx_anytls_frame_t frame;
     size_t consumed;
+    ngx_anytls_client_buffer_t *buffer;
+
+    buffer = &ac->client_buffer;
 
     if (!ac->authenticated) {
         if (data == NULL) {
@@ -87,7 +90,7 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             break;
         }
         if (rc != NGX_OK) {
-            ac->remnant_len = 0;
+            buffer->remnant_len = 0;
             return NGX_ERROR;
         }
 
@@ -102,7 +105,7 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
             act_rc = ngx_anytls_session_actions_run(ac, &session_result,
                                                      &outcome);
             if (outcome.done) {
-                ac->remnant_len = 0;
+                buffer->remnant_len = 0;
                 return NGX_ERROR;
             }
             if (act_rc != NGX_OK && rc == NGX_OK) {
@@ -111,7 +114,7 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
         }
 
         if (rc != NGX_OK) {
-            ac->remnant_len = 0;
+            buffer->remnant_len = 0;
             return rc;
         }
 
@@ -127,10 +130,11 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     }
 
     /* Compact only when the incomplete frame is not already at the start. */
-    ac->remnant_len = (size_t) (last - pos);
-    if (ac->remnant_len && pos != ac->read_buf) {
-        ngx_memmove(ac->read_buf, pos, ac->remnant_len);
+    buffer->remnant_len = (size_t) (last - pos);
+    if (buffer->remnant_len && pos != buffer->data) {
+        ngx_memmove(buffer->data, pos, buffer->remnant_len);
     }
+    ngx_anytls_client_buffer_release_oversized(buffer);
 
     return NGX_OK;
 }
@@ -191,7 +195,7 @@ ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac)
         return NGX_ERROR;
     }
 
-    if (ac->remnant_len) {
+    if (ac->client_buffer.remnant_len) {
         if (!rev->ready) {
             rev->ready = 1;
         }
@@ -230,10 +234,10 @@ ngx_anytls_client_input_resume(ngx_anytls_connection_t *ac)
 
     ac->input_paused = 0;
 
-    if (ac->remnant_len) {
-        size_t save = ac->remnant_len;
-        ac->remnant_len = 0;
-        rc = ngx_anytls_process_client_bytes(ac, ac->read_buf, save);
+    if (ac->client_buffer.remnant_len) {
+        size_t save = ac->client_buffer.remnant_len;
+        ac->client_buffer.remnant_len = 0;
+        rc = ngx_anytls_process_client_bytes(ac, ac->client_buffer.data, save);
         if (rc != NGX_OK) {
             return rc;
         }
@@ -332,18 +336,21 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
         return;
     }
 
-    buf = ac->read_buf;
     read_bytes = 0;
     read_loops = 0;
     budget_exhausted = 0;
 
     for ( ;; ) {
-        if (ac->remnant_len > ac->read_buf_capacity) {
+        if (ngx_anytls_client_buffer_prepare(
+                &ac->client_buffer, ac->authenticated, c->log) != NGX_OK)
+        {
             ngx_anytls_finalize(ac);
             return;
         }
 
-        available = ac->read_buf_capacity - ac->remnant_len;
+        buf = ac->client_buffer.data;
+        available = ac->client_buffer.capacity
+                    - ac->client_buffer.remnant_len;
         if (available == 0) {
             ngx_log_error(NGX_LOG_ERR, c->log, 0,
                           "anytls: full client frame buffer left unparsed");
@@ -351,7 +358,8 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
             return;
         }
         recv_size = ngx_min(ac->read_buf_size, available);
-        n = ngx_anytls_transport_read(c, buf + ac->remnant_len, recv_size);
+        n = ngx_anytls_transport_read(
+            c, buf + ac->client_buffer.remnant_len, recv_size);
         if (n == NGX_AGAIN) {
             break;
         }
@@ -369,9 +377,9 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
          * s->received on the stock proxy read path */
         s->received += n;
 
-        if (ac->remnant_len) {
-            size_t total = ac->remnant_len + (size_t) n;
-            ac->remnant_len = 0;
+        if (ac->client_buffer.remnant_len) {
+            size_t total = ac->client_buffer.remnant_len + (size_t) n;
+            ac->client_buffer.remnant_len = 0;
             rc = ngx_anytls_process_client_bytes(ac, buf, total);
         } else {
             rc = ngx_anytls_process_client_bytes(ac, buf, (size_t) n);
@@ -384,6 +392,7 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
         }
 
         if (ac->state == NGX_ANYTLS_CONN_FALLBACK) {
+            ngx_anytls_client_buffer_destroy(&ac->client_buffer);
             return;
         }
 
