@@ -20,6 +20,18 @@ ngx_anytls_conn_log(ngx_anytls_connection_t *ac)
     return ac->log;
 }
 
+void
+ngx_anytls_connection_release_client_buffer_if_idle(
+    ngx_anytls_connection_t *ac)
+{
+    if (ac == NULL || ac->client_buffer_processing) {
+        return;
+    }
+
+    ngx_anytls_client_buffer_release_if_idle(&ac->client_buffer,
+                                             ac->active_streams);
+}
+
 
 void
 ngx_anytls_connection_init(ngx_stream_session_t *s,
@@ -45,10 +57,7 @@ ngx_anytls_connection_init(ngx_stream_session_t *s,
                                   conf->padding_data, conf->padding_data_len);
     ac->read_buf_size = ngx_min(conf->buffer_size,
                                 NGX_ANYTLS_CLIENT_BUFFER_MAX_SIZE);
-    if (ngx_anytls_client_buffer_init(&ac->client_buffer, c->log) != NGX_OK) {
-        ngx_stream_finalize_session(s, NGX_STREAM_INTERNAL_SERVER_ERROR);
-        return;
-    }
+    ngx_anytls_client_buffer_init(&ac->client_buffer);
     ac->control_out_last = &ac->control_out;
     ac->data_out_last = &ac->data_out;
     ac->sending_last = &ac->sending;

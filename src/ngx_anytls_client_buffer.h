@@ -16,13 +16,12 @@ typedef struct {
     size_t   remnant_len;
 } ngx_anytls_client_buffer_t;
 
-ngx_int_t ngx_anytls_client_buffer_init(
-    ngx_anytls_client_buffer_t *buffer, ngx_log_t *log);
+void ngx_anytls_client_buffer_init(ngx_anytls_client_buffer_t *buffer);
 ngx_int_t ngx_anytls_client_buffer_prepare(
     ngx_anytls_client_buffer_t *buffer, ngx_uint_t authenticated,
     ngx_log_t *log);
-void ngx_anytls_client_buffer_release_oversized(
-    ngx_anytls_client_buffer_t *buffer);
+void ngx_anytls_client_buffer_release_if_idle(
+    ngx_anytls_client_buffer_t *buffer, ngx_uint_t active_streams);
 void ngx_anytls_client_buffer_destroy(ngx_anytls_client_buffer_t *buffer);
 
 #endif

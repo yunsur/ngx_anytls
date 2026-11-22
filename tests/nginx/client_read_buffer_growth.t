@@ -25,7 +25,7 @@ select STDOUT; $| = 1;
 
 my $upstream = tcp_echo_socket();
 my $upstream_port = $upstream->sockport();
-my $t = Test::Nginx->new()->has(qw/stream/)->plan(2)
+my $t = Test::Nginx->new()->has(qw/stream/)->plan(3)
     ->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
@@ -47,6 +47,7 @@ $t->run_daemon(sub { tcp_echo_daemon($upstream) });
 $t->run();
 
 my $client = stream('127.0.0.1:' . port(8080));
+my $wire_buffer = '';
 my $stream_id = 41;
 $client->write(auth_prefix('test-password')
     . frame(CMD_SETTINGS, 0, "v=2\n")
@@ -54,30 +55,38 @@ $client->write(auth_prefix('test-password')
 
 my $address = socks5_ipv4_addr('127.0.0.1', $upstream_port);
 my $maximum = patterned(65535 - length($address));
-my $following = 'same-write-after-maximum-frame';
+my $repeat = 8;
+my $following = 'same-write-after-maximum-frames';
 my $wire = frame(CMD_PUSH, $stream_id, $address . $maximum)
+    . join('', map { frame(CMD_PUSH, $stream_id, $maximum) } 2 .. $repeat)
     . frame(CMD_PUSH, $stream_id, $following);
+my $expected = $maximum x $repeat . $following;
 
 $client->write(substr($wire, 0, 6, ''));
 usleep(20_000);
 write_fragmented($client, $wire, 3001);
 
-is(read_stream_bytes($client, $stream_id,
-                     length($maximum) + length($following)),
-   $maximum . $following,
-   'fragmented maximum frame preserves the following frame');
-
-my $regrown = patterned(8192);
-my $after_regrow = 'same-write-after-regrowth';
-$client->write(frame(CMD_PUSH, $stream_id, $regrown)
-    . frame(CMD_PUSH, $stream_id, $after_regrow));
-
-is(read_stream_bytes($client, $stream_id,
-                     length($regrown) + length($after_regrow)),
-   $regrown . $after_regrow,
-   'released client buffer regrows without losing trailing data');
+is(read_stream_bytes($client, $stream_id, length($expected)),
+   $expected,
+   'fragmented maximum frames preserve the following frame');
 
 $client->write(frame(CMD_FIN, $stream_id));
+ok(wait_stream_fin($client, $stream_id),
+   'maximum-frame stream closes before session reactivation');
+
+my $next_stream_id = 43;
+my $reactivated = patterned(8192);
+my $after_reactivation = 'same-write-after-session-reactivation';
+$client->write(frame(CMD_SYN, $next_stream_id)
+    . frame(CMD_PUSH, $next_stream_id, $address . $reactivated)
+    . frame(CMD_PUSH, $next_stream_id, $after_reactivation));
+
+is(read_stream_bytes($client, $next_stream_id,
+                     length($reactivated) + length($after_reactivation)),
+   $reactivated . $after_reactivation,
+   'idle session reactivates without losing trailing data');
+
+$client->write(frame(CMD_FIN, $next_stream_id));
 
 sub patterned {
     my ($size) = @_;
@@ -97,29 +106,44 @@ sub write_fragmented {
 
 sub read_stream_bytes {
     my ($socket, $wanted_stream, $wanted_length) = @_;
-    my $wire_buffer = '';
     my $payload = '';
 
     while (length($payload) < $wanted_length) {
-        while (length($wire_buffer) < 7) {
-            my $chunk = $socket->read();
-            die 'unexpected EOF while reading frame header'
-                if !defined $chunk;
-            $wire_buffer .= $chunk;
-        }
-
-        my ($cmd, $sid, $length) = unpack('C N n', substr($wire_buffer, 0, 7));
-        while (length($wire_buffer) < 7 + $length) {
-            my $chunk = $socket->read();
-            die 'unexpected EOF while reading frame payload'
-                if !defined $chunk;
-            $wire_buffer .= $chunk;
-        }
-
-        my $data = substr($wire_buffer, 7, $length);
-        substr($wire_buffer, 0, 7 + $length, '');
+        my ($cmd, $sid, $data) = read_frame($socket);
         $payload .= $data if $cmd == CMD_PUSH && $sid == $wanted_stream;
     }
 
     return $payload;
+}
+
+sub wait_stream_fin {
+    my ($socket, $wanted_stream) = @_;
+
+    while (1) {
+        my ($cmd, $sid) = read_frame($socket);
+        return 1 if $cmd == CMD_FIN && $sid == $wanted_stream;
+    }
+}
+
+sub read_frame {
+    my ($socket) = @_;
+
+    while (length($wire_buffer) < 7) {
+        my $chunk = $socket->read();
+        die 'unexpected EOF while reading frame header'
+            if !defined $chunk;
+        $wire_buffer .= $chunk;
+    }
+
+    my ($cmd, $sid, $length) = unpack('C N n', substr($wire_buffer, 0, 7));
+    while (length($wire_buffer) < 7 + $length) {
+        my $chunk = $socket->read();
+        die 'unexpected EOF while reading frame payload'
+            if !defined $chunk;
+        $wire_buffer .= $chunk;
+    }
+
+    my $data = substr($wire_buffer, 7, $length);
+    substr($wire_buffer, 0, 7 + $length, '');
+    return ($cmd, $sid, $data);
 }

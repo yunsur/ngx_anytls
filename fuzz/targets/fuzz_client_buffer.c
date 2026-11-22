@@ -3,13 +3,14 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 int
 LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     ngx_anytls_client_buffer_t buffer;
     ngx_anytls_frame_t frame;
-    ngx_uint_t authenticated;
+    ngx_uint_t authenticated, active_streams;
     size_t consumed, copied, chunk, available;
     uint8_t control;
 
@@ -18,9 +19,7 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     }
 
     ngx_memzero(&buffer, sizeof(buffer));
-    if (ngx_anytls_client_buffer_init(&buffer, NULL) != NGX_OK) {
-        return 0;
-    }
+    ngx_anytls_client_buffer_init(&buffer);
 
     authenticated = data[0] & 1;
     data++;
@@ -29,7 +28,8 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     while (size != 0) {
         control = *data++;
         size--;
-        chunk = 1 + (control >> 1);
+        active_streams = (control >> 1) & 1;
+        chunk = 1 + (control >> 2);
         if (chunk > size) {
             chunk = size;
         }
@@ -68,7 +68,15 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             }
         }
 
-        ngx_anytls_client_buffer_release_oversized(&buffer);
+        ngx_anytls_client_buffer_release_if_idle(&buffer, active_streams);
+        if (active_streams == 0 && buffer.remnant_len == 0
+            && (buffer.data != NULL || buffer.capacity != 0))
+        {
+            abort();
+        }
+        if (active_streams != 0 && buffer.data == NULL) {
+            abort();
+        }
 
         if (copied == 0 && available == 0) {
             break;

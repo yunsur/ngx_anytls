@@ -7,7 +7,11 @@ test_initial_capacity_and_auth_bytes(void)
     ngx_anytls_client_buffer_t buffer;
 
     ngx_memzero(&buffer, sizeof(buffer));
-    ASSERT_EQ(ngx_anytls_client_buffer_init(&buffer, NULL), NGX_OK);
+    ngx_anytls_client_buffer_init(&buffer);
+    ASSERT_NULL(buffer.data);
+    ASSERT_EQ(buffer.capacity, 0);
+
+    ASSERT_EQ(ngx_anytls_client_buffer_prepare(&buffer, 0, NULL), NGX_OK);
     ASSERT_NOTNULL(buffer.data);
     ASSERT_EQ(buffer.capacity, NGX_ANYTLS_CLIENT_BUFFER_INITIAL_SIZE);
 
@@ -32,7 +36,8 @@ test_fragmented_header_grows_and_preserves_bytes(void)
     };
 
     ngx_memzero(&buffer, sizeof(buffer));
-    ASSERT_EQ(ngx_anytls_client_buffer_init(&buffer, NULL), NGX_OK);
+    ngx_anytls_client_buffer_init(&buffer);
+    ASSERT_EQ(ngx_anytls_client_buffer_prepare(&buffer, 1, NULL), NGX_OK);
 
     ngx_memcpy(buffer.data, header, sizeof(header) - 1);
     buffer.remnant_len = sizeof(header) - 1;
@@ -50,7 +55,7 @@ test_fragmented_header_grows_and_preserves_bytes(void)
 
 
 static void
-test_maximum_frame_releases_and_regrows(void)
+test_active_buffer_reuse_and_idle_release(void)
 {
     ngx_anytls_client_buffer_t buffer;
     u_char header[NGX_ANYTLS_FRAME_HEADER_LEN] = {
@@ -58,7 +63,8 @@ test_maximum_frame_releases_and_regrows(void)
     };
 
     ngx_memzero(&buffer, sizeof(buffer));
-    ASSERT_EQ(ngx_anytls_client_buffer_init(&buffer, NULL), NGX_OK);
+    ngx_anytls_client_buffer_init(&buffer);
+    ASSERT_EQ(ngx_anytls_client_buffer_prepare(&buffer, 1, NULL), NGX_OK);
     ngx_memcpy(buffer.data, header, sizeof(header));
     buffer.remnant_len = sizeof(header);
 
@@ -68,11 +74,16 @@ test_maximum_frame_releases_and_regrows(void)
     ASSERT_MEM(buffer.data, header, sizeof(header));
 
     buffer.remnant_len = 1;
-    ngx_anytls_client_buffer_release_oversized(&buffer);
+    ngx_anytls_client_buffer_release_if_idle(&buffer, 0);
     ASSERT_NOTNULL(buffer.data);
 
     buffer.remnant_len = 0;
-    ngx_anytls_client_buffer_release_oversized(&buffer);
+    ngx_anytls_client_buffer_release_if_idle(&buffer, 1);
+    ASSERT_NOTNULL(buffer.data);
+    ASSERT_EQ(buffer.capacity,
+              NGX_ANYTLS_FRAME_HEADER_LEN + NGX_ANYTLS_MAX_FRAME_DATA);
+
+    ngx_anytls_client_buffer_release_if_idle(&buffer, 0);
     ASSERT_NULL(buffer.data);
     ASSERT_EQ(buffer.capacity, 0);
 
@@ -90,7 +101,7 @@ test_invalid_remnant_is_rejected(void)
     ngx_anytls_client_buffer_t buffer;
 
     ngx_memzero(&buffer, sizeof(buffer));
-    ASSERT_EQ(ngx_anytls_client_buffer_init(&buffer, NULL), NGX_OK);
+    ngx_anytls_client_buffer_init(&buffer);
     buffer.remnant_len = buffer.capacity + 1;
     ASSERT_EQ(ngx_anytls_client_buffer_prepare(&buffer, 1, NULL), NGX_ERROR);
     ngx_anytls_client_buffer_destroy(&buffer);
@@ -102,7 +113,7 @@ run_all_tests(void)
 {
     test_initial_capacity_and_auth_bytes();
     test_fragmented_header_grows_and_preserves_bytes();
-    test_maximum_frame_releases_and_regrows();
+    test_active_buffer_reuse_and_idle_release();
     test_invalid_remnant_is_rejected();
 }
 

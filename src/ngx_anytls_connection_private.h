@@ -145,6 +145,7 @@ struct ngx_anytls_connection_s {
     unsigned                 write_pending:1;
     unsigned                 output_pressure:1;
     unsigned                 closing:1;
+    unsigned                 client_buffer_processing:1;
 
     ngx_peer_connection_t    fallback_peer;
     ngx_connection_t        *fallback;

@@ -3,6 +3,7 @@
 #include <ngx_core.h>
 #include <ngx_stream.h>
 
+#include "ngx_anytls_connection.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_upstream.h"
@@ -445,6 +446,7 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
     }
     ngx_queue_remove(&st->link);
     ac->active_streams--;
+    ngx_anytls_connection_release_client_buffer_if_idle(ac);
     ngx_anytls_stream_ht_remove(ac, st);
     ngx_anytls_stream_ht_compact(ac);
     if (st->pool) {

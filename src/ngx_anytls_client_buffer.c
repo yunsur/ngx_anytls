@@ -29,16 +29,12 @@ ngx_anytls_client_buffer_resize(ngx_anytls_client_buffer_t *buffer,
 }
 
 
-ngx_int_t
-ngx_anytls_client_buffer_init(ngx_anytls_client_buffer_t *buffer,
-    ngx_log_t *log)
+void
+ngx_anytls_client_buffer_init(ngx_anytls_client_buffer_t *buffer)
 {
     buffer->data = NULL;
     buffer->capacity = 0;
     buffer->remnant_len = 0;
-
-    return ngx_anytls_client_buffer_resize(
-        buffer, NGX_ANYTLS_CLIENT_BUFFER_INITIAL_SIZE, log);
 }
 
 
@@ -81,16 +77,16 @@ ngx_anytls_client_buffer_prepare(ngx_anytls_client_buffer_t *buffer,
 
 
 void
-ngx_anytls_client_buffer_release_oversized(
-    ngx_anytls_client_buffer_t *buffer)
+ngx_anytls_client_buffer_release_if_idle(
+    ngx_anytls_client_buffer_t *buffer, ngx_uint_t active_streams)
 {
-    if (buffer->remnant_len != 0
-        || buffer->capacity <= NGX_ANYTLS_CLIENT_BUFFER_INITIAL_SIZE)
-    {
+    if (active_streams != 0 || buffer->remnant_len != 0) {
         return;
     }
 
-    ngx_free(buffer->data);
+    if (buffer->data != NULL) {
+        ngx_free(buffer->data);
+    }
     buffer->data = NULL;
     buffer->capacity = 0;
 }

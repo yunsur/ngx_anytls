@@ -21,6 +21,8 @@ static void ngx_anytls_send_http_400(ngx_anytls_connection_t *ac);
 static ngx_int_t ngx_anytls_enable_client_read(ngx_anytls_connection_t *ac);
 static ngx_uint_t ngx_anytls_input_blocked(ngx_anytls_connection_t *ac);
 static void ngx_anytls_cache_peer_version(ngx_anytls_connection_t *ac);
+static ngx_int_t ngx_anytls_process_buffered_client_bytes(
+    ngx_anytls_connection_t *ac, u_char *data, size_t len);
 
 
 ngx_int_t
@@ -134,9 +136,22 @@ ngx_anytls_process_client_bytes(ngx_anytls_connection_t *ac, u_char *data,
     if (buffer->remnant_len && pos != buffer->data) {
         ngx_memmove(buffer->data, pos, buffer->remnant_len);
     }
-    ngx_anytls_client_buffer_release_oversized(buffer);
 
     return NGX_OK;
+}
+
+static ngx_int_t
+ngx_anytls_process_buffered_client_bytes(ngx_anytls_connection_t *ac,
+    u_char *data, size_t len)
+{
+    ngx_int_t rc;
+
+    ac->client_buffer_processing = 1;
+    rc = ngx_anytls_process_client_bytes(ac, data, len);
+    ac->client_buffer_processing = 0;
+    ngx_anytls_connection_release_client_buffer_if_idle(ac);
+
+    return rc;
 }
 
 
@@ -237,7 +252,8 @@ ngx_anytls_client_input_resume(ngx_anytls_connection_t *ac)
     if (ac->client_buffer.remnant_len) {
         size_t save = ac->client_buffer.remnant_len;
         ac->client_buffer.remnant_len = 0;
-        rc = ngx_anytls_process_client_bytes(ac, ac->client_buffer.data, save);
+        rc = ngx_anytls_process_buffered_client_bytes(
+            ac, ac->client_buffer.data, save);
         if (rc != NGX_OK) {
             return rc;
         }
@@ -380,9 +396,10 @@ ngx_anytls_client_read_handler(ngx_event_t *rev)
         if (ac->client_buffer.remnant_len) {
             size_t total = ac->client_buffer.remnant_len + (size_t) n;
             ac->client_buffer.remnant_len = 0;
-            rc = ngx_anytls_process_client_bytes(ac, buf, total);
+            rc = ngx_anytls_process_buffered_client_bytes(ac, buf, total);
         } else {
-            rc = ngx_anytls_process_client_bytes(ac, buf, (size_t) n);
+            rc = ngx_anytls_process_buffered_client_bytes(
+                ac, buf, (size_t) n);
         }
         if (rc != NGX_OK) {
             if (ac->state != NGX_ANYTLS_CONN_FALLBACK) {
