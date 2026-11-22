@@ -177,6 +177,10 @@ static ngx_stream_variable_t ngx_anytls_variables[] = {
       ngx_anytls_variable_uint,
       offsetof(ngx_anytls_connection_t, upstream_states_truncated),
       NGX_STREAM_VAR_NOCACHEABLE, 0 },
+    { ngx_string("anytls_idle_cache_trims"), NULL,
+      ngx_anytls_variable_uint,
+      offsetof(ngx_anytls_connection_t, idle_cache_trims),
+      NGX_STREAM_VAR_NOCACHEABLE, 0 },
     { ngx_null_string, NULL, NULL, 0, 0, 0 }
 };
 

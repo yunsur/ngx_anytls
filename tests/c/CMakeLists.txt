@@ -57,4 +57,8 @@ add_executable(test_stream_index test_stream_index.c)
 target_include_directories(test_stream_index PRIVATE "${MODULE_SRC}")
 add_test(NAME test_stream_index COMMAND test_stream_index)
 
+add_executable(test_idle_cache test_idle_cache.c)
+target_include_directories(test_idle_cache PRIVATE "${MODULE_SRC}")
+add_test(NAME test_idle_cache COMMAND test_idle_cache)
+
 enable_testing()

@@ -18,6 +18,7 @@
 #include "ngx_anytls_protocol.h"
 #include "ngx_anytls_client_buffer.h"
 #include "ngx_anytls_cache_budget.h"
+#include "ngx_anytls_idle_cache.h"
 #include "ngx_anytls_socksaddr.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_upstream_state.h"
@@ -108,6 +109,8 @@ struct ngx_anytls_connection_s {
 
     ngx_anytls_upstream_mux_t upstream_mux;
     ngx_event_t              write_timer;
+    ngx_event_t              idle_cache_timer;
+    ngx_anytls_idle_cache_policy_t idle_cache_policy;
     ngx_chain_t             *unsent;
     size_t                   pending_output;
     size_t                   pending_input;
@@ -129,6 +132,7 @@ struct ngx_anytls_connection_s {
     size_t                   peak_pending_output;
     ngx_uint_t               peak_frames;
     ngx_uint_t               upstream_states_truncated;
+    ngx_uint_t               idle_cache_trims;
 
     ngx_anytls_session_core_t  session_core;
     ngx_str_t                 user_name;

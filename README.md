@@ -310,6 +310,7 @@ stream `log_format` / `access_log`:
 | `$anytls_peak_pending_output` | peak queued upstream-to-client frame bytes |
 | `$anytls_peak_frames` | peak queued output frame count |
 | `$anytls_upstream_states_truncated` | upstream state entries omitted by `anytls_max_upstream_states` |
+| `$anytls_idle_cache_trims` | number of delayed idle-cache releases in the session |
 
 Example:
 

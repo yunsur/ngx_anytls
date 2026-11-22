@@ -181,6 +181,7 @@ ngx_anytls_stream_alloc(ngx_anytls_connection_t *ac, uint32_t id)
         return NULL;
     }
     ngx_queue_insert_tail(&ac->stream_list, &st->link);
+    ngx_anytls_connection_cancel_idle_cache_trim(ac);
     ac->active_streams++;
 
     if (ac->active_streams > ac->peak_active_streams) {
@@ -461,4 +462,5 @@ ngx_anytls_stream_close(ngx_anytls_stream_t *st)
         ngx_destroy_pool(st->pool);
     }
     ngx_free(st);
+    ngx_anytls_connection_schedule_idle_cache_trim(ac);
 }

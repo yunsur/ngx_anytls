@@ -8,6 +8,10 @@ void ngx_anytls_connection_init(ngx_stream_session_t *s,
 void ngx_anytls_close_if_idle(ngx_anytls_connection_t *ac);
 void ngx_anytls_connection_release_client_buffer_if_idle(
     ngx_anytls_connection_t *ac);
+void ngx_anytls_connection_schedule_idle_cache_trim(
+    ngx_anytls_connection_t *ac);
+void ngx_anytls_connection_cancel_idle_cache_trim(
+    ngx_anytls_connection_t *ac);
 void ngx_anytls_finalize(ngx_anytls_connection_t *ac);
 void ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc);
 

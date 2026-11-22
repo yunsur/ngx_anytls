@@ -18,5 +18,6 @@ ngx_chain_t *ngx_anytls_upstream_get_read_buf(ngx_anytls_connection_t *ac,
     size_t size);
 void ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac,
     ngx_chain_t *cl);
+void ngx_anytls_upstream_trim_caches(ngx_anytls_connection_t *ac);
 
 #endif

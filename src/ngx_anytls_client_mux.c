@@ -124,6 +124,20 @@ ngx_anytls_client_mux_discard_frame(ngx_anytls_connection_t *ac,
 
 
 void
+ngx_anytls_client_mux_trim_cache(ngx_anytls_connection_t *ac)
+{
+    ngx_anytls_out_frame_t *f;
+
+    while (ac->free_frames) {
+        f = ac->free_frames;
+        ac->free_frames = f->next;
+        ngx_free(f);
+    }
+    ac->free_frames_count = 0;
+}
+
+
+void
 ngx_anytls_client_mux_destroy(ngx_anytls_connection_t *ac)
 {
     ngx_anytls_out_frame_t *f, *next;
@@ -152,12 +166,7 @@ ngx_anytls_client_mux_destroy(ngx_anytls_connection_t *ac)
     ac->sending_last = &ac->sending;
     ac->unsent = NULL;
 
-    while (ac->free_frames) {
-        f = ac->free_frames;
-        ac->free_frames = f->next;
-        ngx_free(f);
-    }
-    ac->free_frames_count = 0;
+    ngx_anytls_client_mux_trim_cache(ac);
     ac->pending_output = 0;
     ac->frames = 0;
 }

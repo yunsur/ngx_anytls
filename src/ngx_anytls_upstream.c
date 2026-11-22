@@ -330,6 +330,40 @@ ngx_anytls_upstream_free_read_buf(ngx_anytls_connection_t *ac, ngx_chain_t *cl)
 }
 
 
+void
+ngx_anytls_upstream_trim_caches(ngx_anytls_connection_t *ac)
+{
+    ngx_anytls_pending_buf_hdr_t *hdr;
+    ngx_chain_t *cl;
+
+    while (ac->free_read_bufs) {
+        cl = ac->free_read_bufs;
+        ac->free_read_bufs = cl->next;
+        ngx_free(cl->buf->start);
+        ngx_free(cl->buf);
+        ngx_free(cl);
+    }
+
+    while (ac->free_read_bufs_large) {
+        cl = ac->free_read_bufs_large;
+        ac->free_read_bufs_large = cl->next;
+        ngx_free(cl->buf->start);
+        ngx_free(cl->buf);
+        ngx_free(cl);
+    }
+    ac->free_read_buf_cache.bytes = 0;
+    ac->free_read_buf_cache.objects = 0;
+
+    while (ac->free_pending_bufs) {
+        hdr = ac->free_pending_bufs;
+        ac->free_pending_bufs = hdr->next;
+        ngx_free(hdr);
+    }
+    ac->free_pending_buf_cache.bytes = 0;
+    ac->free_pending_buf_cache.objects = 0;
+}
+
+
 ngx_int_t
 ngx_anytls_upstream_open(ngx_anytls_stream_t *st, ngx_anytls_addr_t *addr)
 {
