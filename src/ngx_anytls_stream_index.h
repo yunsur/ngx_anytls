@@ -80,15 +80,14 @@ static inline void *
 ngx_anytls_stream_index_find(void **slots, uint32_t mask, uint32_t id)
 {
     void *entry;
-    uint32_t capacity, i, index;
+    uint32_t i, index;
 
     if (slots == NULL) {
         return NULL;
     }
 
-    capacity = mask + 1;
     index = id & mask;
-    for (i = 0; i < capacity; i++) {
+    for (i = 0; i <= mask; i++) {
         entry = slots[index];
         if (entry == NULL) {
             return NULL;
@@ -108,11 +107,10 @@ ngx_anytls_stream_index_find(void **slots, uint32_t mask, uint32_t id)
 static inline int
 ngx_anytls_stream_index_insert(void **slots, uint32_t mask, void *value)
 {
-    uint32_t capacity, i, index;
+    uint32_t i, index;
 
-    capacity = mask + 1;
     index = ngx_anytls_stream_index_id(value) & mask;
-    for (i = 0; i < capacity; i++) {
+    for (i = 0; i <= mask; i++) {
         if (slots[index] == NULL
             || slots[index] == NGX_ANYTLS_STREAM_INDEX_TOMBSTONE)
         {
@@ -129,11 +127,10 @@ ngx_anytls_stream_index_insert(void **slots, uint32_t mask, void *value)
 static inline int
 ngx_anytls_stream_index_remove(void **slots, uint32_t mask, void *value)
 {
-    uint32_t capacity, i, index;
+    uint32_t i, index;
 
-    capacity = mask + 1;
     index = ngx_anytls_stream_index_id(value) & mask;
-    for (i = 0; i < capacity; i++) {
+    for (i = 0; i <= mask; i++) {
         if (slots[index] == value) {
             slots[index] = NGX_ANYTLS_STREAM_INDEX_TOMBSTONE;
             return 1;

@@ -103,11 +103,31 @@ test_collision_removal_and_compaction(void)
 }
 
 
+static void
+test_full_table_probe_bound(void)
+{
+    void *slots[NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY] = { 0 };
+    test_entry_t entries[NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY + 1];
+    size_t i;
+
+    for (i = 0; i < NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY; i++) {
+        entries[i].id = 7 + (uint32_t) i * 64;
+        ASSERT(ngx_anytls_stream_index_insert(slots, 63, &entries[i]));
+    }
+
+    entries[NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY].id = 9;
+    ASSERT(ngx_anytls_stream_index_find(slots, 63, 9) == NULL);
+    ASSERT(!ngx_anytls_stream_index_insert(
+        slots, 63, &entries[NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY]));
+}
+
+
 int
 main(void)
 {
     test_capacity_policy();
     test_collision_removal_and_compaction();
+    test_full_table_probe_bound();
 
     if (tests_failed != 0) {
         fprintf(stderr, "FAILED: %d/%d assertions\n",
