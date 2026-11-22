@@ -6,6 +6,7 @@
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_resolver.h"
 #include "ngx_anytls_stream.h"
+#include "ngx_anytls_stream_index.h"
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_upstream_mux.h"
 #include "ngx_anytls_upstream_state.h"
@@ -61,63 +62,79 @@ ngx_anytls_stream_is_closed_by_protocol(ngx_anytls_stream_t *st)
 }
 
 
-#define NGX_ANYTLS_STREAM_HT_TOMB ((void *) 1)
-
 static ngx_int_t
-ngx_anytls_stream_ht_ensure(ngx_anytls_connection_t *ac)
+ngx_anytls_stream_ht_rebuild(ngx_anytls_connection_t *ac,
+    uint32_t target_capacity)
 {
-    uint32_t size;
+    ngx_anytls_stream_t **old_ht, **new_ht, *st;
+    ngx_queue_t *q;
+    uint32_t capacity;
 
-    if (ac->stream_ht != NULL) {
-        return NGX_OK;
+    old_ht = ac->stream_ht;
+    capacity = old_ht ? ac->stream_ht_mask + 1 : 0;
+
+    if (old_ht != NULL && target_capacity == capacity) {
+        ngx_memzero(old_ht, sizeof(*old_ht) * capacity);
+        new_ht = old_ht;
+
+    } else {
+        new_ht = ngx_calloc(sizeof(*new_ht) * target_capacity, ac->log);
+        if (new_ht == NULL) {
+            return NGX_ERROR;
+        }
     }
 
-    size = (uint32_t) (ac->conf->max_streams * 2);
-    size--;
-    size |= size >> 1;
-    size |= size >> 2;
-    size |= size >> 4;
-    size |= size >> 8;
-    size |= size >> 16;
-    size++;
-    if (size < 64) {
-        size = 64;
+    for (q = ngx_queue_head(&ac->stream_list);
+         q != ngx_queue_sentinel(&ac->stream_list);
+         q = ngx_queue_next(q))
+    {
+        st = ngx_queue_data(q, ngx_anytls_stream_t, link);
+        if (!ngx_anytls_stream_index_insert((void **) new_ht,
+                                             target_capacity - 1, st))
+        {
+            if (new_ht != old_ht) {
+                ngx_free(new_ht);
+            }
+            return NGX_ERROR;
+        }
     }
 
-    ac->stream_ht = ngx_pcalloc(ac->pool,
-                                sizeof(*ac->stream_ht) * size);
-    if (ac->stream_ht == NULL) {
-        return NGX_ERROR;
+    if (new_ht != old_ht) {
+        ac->stream_ht = new_ht;
+        ac->stream_ht_mask = target_capacity - 1;
+        if (old_ht != NULL) {
+            ngx_free(old_ht);
+        }
     }
-    ac->stream_ht_mask = size - 1;
+    ac->stream_ht_tombstones = 0;
 
     return NGX_OK;
 }
 
+
+static ngx_int_t
+ngx_anytls_stream_ht_ensure(ngx_anytls_connection_t *ac)
+{
+    uint32_t capacity, target_capacity;
+
+    capacity = ac->stream_ht ? ac->stream_ht_mask + 1 : 0;
+    if (!ngx_anytls_stream_index_needs_rebuild(
+            capacity, ac->active_streams, ac->stream_ht_tombstones))
+    {
+        return NGX_OK;
+    }
+
+    target_capacity = ngx_anytls_stream_index_next_capacity(
+        capacity, ac->active_streams, ac->conf->max_streams);
+    return ngx_anytls_stream_ht_rebuild(ac, target_capacity);
+}
+
+
 static ngx_anytls_stream_t *
 ngx_anytls_stream_ht_find(ngx_anytls_connection_t *ac, uint32_t id)
 {
-    uint32_t idx, i;
-    ngx_anytls_stream_t *st;
-
-    if (ac->stream_ht == NULL) {
-        return NULL;
-    }
-
-    idx = id & ac->stream_ht_mask;
-
-    for (i = 0; i <= ac->stream_ht_mask; i++) {
-        st = ac->stream_ht[idx];
-        if (st == NULL) {
-            return NULL;
-        }
-        if (st != NGX_ANYTLS_STREAM_HT_TOMB && st->id == id) {
-            return st;
-        }
-        idx = (idx + 1) & ac->stream_ht_mask;
-    }
-
-    return NULL;
+    return ngx_anytls_stream_index_find((void **) ac->stream_ht,
+                                         ac->stream_ht_mask, id);
 }
 
 
@@ -125,25 +142,9 @@ static ngx_int_t
 ngx_anytls_stream_ht_insert(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    uint32_t idx, i;
-
-    if (ngx_anytls_stream_ht_ensure(ac) != NGX_OK) {
-        return NGX_ERROR;
-    }
-
-    idx = st->id & ac->stream_ht_mask;
-
-    for (i = 0; i <= ac->stream_ht_mask; i++) {
-        if (ac->stream_ht[idx] == NULL
-            || ac->stream_ht[idx] == NGX_ANYTLS_STREAM_HT_TOMB)
-        {
-            ac->stream_ht[idx] = st;
-            return NGX_OK;
-        }
-        idx = (idx + 1) & ac->stream_ht_mask;
-    }
-
-    return NGX_ERROR;
+    return ngx_anytls_stream_index_insert((void **) ac->stream_ht,
+                                           ac->stream_ht_mask, st)
+           ? NGX_OK : NGX_ERROR;
 }
 
 
@@ -193,48 +194,55 @@ static void
 ngx_anytls_stream_ht_remove(ngx_anytls_connection_t *ac,
     ngx_anytls_stream_t *st)
 {
-    uint32_t idx, i;
-
-    idx = st->id & ac->stream_ht_mask;
-
-    for (i = 0; i <= ac->stream_ht_mask; i++) {
-        if (ac->stream_ht[idx] == st) {
-            ac->stream_ht[idx] = NGX_ANYTLS_STREAM_HT_TOMB;
-            ac->stream_ht_tombstones++;
-            return;
-        }
-        idx = (idx + 1) & ac->stream_ht_mask;
+    if (ngx_anytls_stream_index_remove((void **) ac->stream_ht,
+                                        ac->stream_ht_mask, st))
+    {
+        ac->stream_ht_tombstones++;
     }
 }
+
 
 static void
 ngx_anytls_stream_ht_compact(ngx_anytls_connection_t *ac)
 {
-    ngx_queue_t *q;
-    ngx_anytls_stream_t *st;
+    uint32_t capacity;
 
     if (ac->stream_ht == NULL) {
         return;
     }
 
-    if (ac->active_streams != 0
-        && (ac->stream_ht_tombstones < 64
-            || ac->stream_ht_tombstones <= ac->active_streams))
+    capacity = ac->stream_ht_mask + 1;
+    if (ac->active_streams == 0) {
+        if (ac->closing) {
+            ngx_free(ac->stream_ht);
+            ac->stream_ht = NULL;
+            ac->stream_ht_mask = 0;
+            ac->stream_ht_tombstones = 0;
+            return;
+        }
+
+        if (capacity == NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY) {
+            ngx_memzero(ac->stream_ht, sizeof(*ac->stream_ht) * capacity);
+            ac->stream_ht_tombstones = 0;
+            return;
+        }
+
+        if (ngx_anytls_stream_ht_rebuild(
+                ac, NGX_ANYTLS_STREAM_INDEX_INITIAL_CAPACITY) != NGX_OK)
+        {
+            ngx_memzero(ac->stream_ht, sizeof(*ac->stream_ht) * capacity);
+            ac->stream_ht_tombstones = 0;
+        }
+        return;
+    }
+
+    if (ac->stream_ht_tombstones < 64
+        || ac->stream_ht_tombstones <= ac->active_streams)
     {
         return;
     }
 
-    ngx_memzero(ac->stream_ht,
-                sizeof(*ac->stream_ht) * (ac->stream_ht_mask + 1));
-    ac->stream_ht_tombstones = 0;
-
-    for (q = ngx_queue_head(&ac->stream_list);
-         q != ngx_queue_sentinel(&ac->stream_list);
-         q = ngx_queue_next(q))
-    {
-        st = ngx_queue_data(q, ngx_anytls_stream_t, link);
-        (void) ngx_anytls_stream_ht_insert(ac, st);
-    }
+    (void) ngx_anytls_stream_ht_rebuild(ac, capacity);
 }
 
 

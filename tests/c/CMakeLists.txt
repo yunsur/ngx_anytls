@@ -53,4 +53,8 @@ add_executable(test_cache_budget test_cache_budget.c)
 target_include_directories(test_cache_budget PRIVATE "${MODULE_SRC}")
 add_test(NAME test_cache_budget COMMAND test_cache_budget)
 
+add_executable(test_stream_index test_stream_index.c)
+target_include_directories(test_stream_index PRIVATE "${MODULE_SRC}")
+add_test(NAME test_stream_index COMMAND test_stream_index)
+
 enable_testing()

@@ -101,3 +101,8 @@ add_executable(fuzz_cache_budget targets/fuzz_cache_budget.c)
 target_include_directories(fuzz_cache_budget PRIVATE "${MODULE_SRC}")
 target_compile_options(fuzz_cache_budget PRIVATE ${FUZZ_FLAGS})
 target_link_options(fuzz_cache_budget PRIVATE ${FUZZ_LINK_FLAGS})
+
+add_executable(fuzz_stream_index targets/fuzz_stream_index.c)
+target_include_directories(fuzz_stream_index PRIVATE "${MODULE_SRC}")
+target_compile_options(fuzz_stream_index PRIVATE ${FUZZ_FLAGS})
+target_link_options(fuzz_stream_index PRIVATE ${FUZZ_LINK_FLAGS})

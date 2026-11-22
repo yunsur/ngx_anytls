@@ -130,6 +130,13 @@ ngx_anytls_finalize_rc(ngx_anytls_connection_t *ac, ngx_uint_t rc)
         ngx_anytls_stream_close(st);
     }
 
+    if (ac->stream_ht != NULL) {
+        ngx_free(ac->stream_ht);
+        ac->stream_ht = NULL;
+        ac->stream_ht_mask = 0;
+        ac->stream_ht_tombstones = 0;
+    }
+
     ngx_anytls_client_mux_destroy(ac);
 
     while (ac->free_read_bufs) {
