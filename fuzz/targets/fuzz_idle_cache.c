@@ -93,6 +93,18 @@ LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         {
             abort();
         }
+
+        if (control & 0x80) {
+            expected = model_step(&model_state,
+                                  NGX_ANYTLS_IDLE_CACHE_CHECK, 1);
+            actual = ngx_anytls_idle_cache_recheck(
+                &policy, 0, 0, 0, 0, 0);
+            if (actual != expected
+                || (int) policy.state != (int) model_state)
+            {
+                abort();
+            }
+        }
     }
 
     return 0;

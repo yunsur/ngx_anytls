@@ -81,4 +81,16 @@ ngx_anytls_idle_cache_transition(ngx_anytls_idle_cache_policy_t *policy,
     return NGX_ANYTLS_IDLE_CACHE_NONE;
 }
 
+
+static inline ngx_anytls_idle_cache_action_e
+ngx_anytls_idle_cache_recheck(ngx_anytls_idle_cache_policy_t *policy,
+    size_t active_streams, size_t pending_input, size_t pending_output,
+    size_t frames, int closing)
+{
+    return ngx_anytls_idle_cache_transition(
+        policy, NGX_ANYTLS_IDLE_CACHE_CHECK,
+        ngx_anytls_idle_cache_eligible(
+            active_streams, pending_input, pending_output, frames, closing));
+}
+
 #endif /* NGX_ANYTLS_IDLE_CACHE_H_INCLUDED */

@@ -25,7 +25,7 @@ select STDOUT; $| = 1;
 
 my $upstream = tcp_echo_socket();
 my $upstream_port = $upstream->sockport();
-my $t = Test::Nginx->new()->has(qw/stream/)->plan(3)
+my $t = Test::Nginx->new()->has(qw/stream/)->plan(4)
     ->write_file_expand('nginx.conf', <<EOF);
 
 %%TEST_GLOBALS%%
@@ -118,8 +118,24 @@ is(run_stream($trim_client, $trim_buffer, 13, 'reuse-after-trim', 0),
     'reuse-after-trim', 'session creates a stream after idle cache trim');
 undef $trim_client;
 
+my $drain_client = stream('127.0.0.1:' . port(8080));
+my $drain_buffer = '';
+$drain_client->write(auth_prefix('test-password')
+    . frame(CMD_SETTINGS, 0, "v=2\n")
+    . frame(CMD_SYN, 21)
+    . frame(CMD_FIN, 21));
+my $drain_cmd;
+while (1) {
+    ($drain_cmd) = read_frame($drain_client, \$drain_buffer);
+    last if $drain_cmd == 10;  # SERVER_SETTINGS
+}
+is($drain_cmd, 10,
+    'connection-level output drains after the last stream closes');
+sleep 1.2;
+undef $drain_client;
+
 sleep 0.2;
 my $log = $t->read_file('access.log');
 my @trims = $log =~ /^(\d+)$/mg;
-is_deeply(\@trims, [0, 1],
-    'only the session idle beyond the grace period trims its caches');
+is_deeply(\@trims, [0, 1, 1],
+    'cache trim is rearmed when connection-level output drains');

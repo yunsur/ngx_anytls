@@ -78,6 +78,33 @@ test_grace_period_lifecycle(void)
 
 
 static void
+test_output_drain_rearms_after_ineligible_timer(void)
+{
+    ngx_anytls_idle_cache_policy_t policy = { 0 };
+
+    ASSERT_EQ(
+        ngx_anytls_idle_cache_recheck(&policy, 0, 0, 7, 1, 0),
+        NGX_ANYTLS_IDLE_CACHE_NONE);
+    ASSERT_EQ(policy.state, NGX_ANYTLS_IDLE_CACHE_OPEN);
+    ASSERT_EQ(
+        ngx_anytls_idle_cache_recheck(&policy, 0, 0, 0, 0, 0),
+        NGX_ANYTLS_IDLE_CACHE_ARM);
+    ASSERT_EQ(
+        ngx_anytls_idle_cache_transition(
+            &policy, NGX_ANYTLS_IDLE_CACHE_TIMER, 0),
+        NGX_ANYTLS_IDLE_CACHE_NONE);
+    ASSERT_EQ(policy.state, NGX_ANYTLS_IDLE_CACHE_OPEN);
+    ASSERT_EQ(
+        ngx_anytls_idle_cache_recheck(&policy, 0, 0, 0, 0, 0),
+        NGX_ANYTLS_IDLE_CACHE_ARM);
+    ASSERT_EQ(
+        ngx_anytls_idle_cache_transition(
+            &policy, NGX_ANYTLS_IDLE_CACHE_TIMER, 1),
+        NGX_ANYTLS_IDLE_CACHE_TRIM);
+}
+
+
+static void
 test_finalize_is_absorbing(void)
 {
     ngx_anytls_idle_cache_policy_t policy = { 0 };
@@ -116,6 +143,7 @@ main(void)
 {
     test_trim_eligibility();
     test_grace_period_lifecycle();
+    test_output_drain_rearms_after_ineligible_timer();
     test_finalize_is_absorbing();
 
     if (tests_failed != 0) {

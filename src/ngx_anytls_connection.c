@@ -82,9 +82,9 @@ ngx_anytls_connection_schedule_idle_cache_trim(ngx_anytls_connection_t *ac)
         return;
     }
 
-    action = ngx_anytls_idle_cache_transition(
-        &ac->idle_cache_policy, NGX_ANYTLS_IDLE_CACHE_CHECK,
-        ngx_anytls_connection_idle_cache_eligible(ac));
+    action = ngx_anytls_idle_cache_recheck(
+        &ac->idle_cache_policy, ac->active_streams, ac->pending_input,
+        ac->pending_output, ac->frames, ac->closing);
     if (action != NGX_ANYTLS_IDLE_CACHE_ARM) {
         return;
     }

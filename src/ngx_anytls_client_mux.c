@@ -241,6 +241,10 @@ ngx_anytls_default_frame_handler(ngx_anytls_connection_t *ac,
         }
         ngx_anytls_stream_close(st);
     }
+
+    if (st == NULL && ac->frames == 0) {
+        ngx_anytls_connection_schedule_idle_cache_trim(ac);
+    }
 }
 
 
