@@ -111,3 +111,8 @@ add_executable(fuzz_idle_cache targets/fuzz_idle_cache.c)
 target_include_directories(fuzz_idle_cache PRIVATE "${MODULE_SRC}")
 target_compile_options(fuzz_idle_cache PRIVATE ${FUZZ_FLAGS})
 target_link_options(fuzz_idle_cache PRIVATE ${FUZZ_LINK_FLAGS})
+
+add_executable(fuzz_upstream_resume targets/fuzz_upstream_resume.c)
+target_include_directories(fuzz_upstream_resume PRIVATE "${MODULE_SRC}")
+target_compile_options(fuzz_upstream_resume PRIVATE ${FUZZ_FLAGS})
+target_link_options(fuzz_upstream_resume PRIVATE ${FUZZ_LINK_FLAGS})

@@ -6,6 +6,7 @@
 #include "ngx_anytls_upstream.h"
 #include "ngx_anytls_client_mux.h"
 #include "ngx_anytls_transport_ngx.h"
+#include "ngx_anytls_upstream_resume.h"
 #include "ngx_anytls_stream.h"
 #include "ngx_anytls_connection.h"
 #include "ngx_anytls_upstream_state.h"
@@ -781,6 +782,7 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
     ngx_connection_t *c;
     size_t size;
     ngx_uint_t resumed;
+    ngx_anytls_upstream_resume_action_e action;
 
     resumed = 0;
 
@@ -821,9 +823,16 @@ ngx_anytls_upstream_mux_process_blocked(ngx_anytls_connection_t *ac)
                            ngx_queue_size(&ac->blocked_upstream_reads));
         }
 
-        if (ngx_anytls_transport_arm_read(c) != NGX_OK) {
+        action = ngx_anytls_upstream_resume_action(c->read->ready,
+                                                   c->read->posted);
+        if (action == NGX_ANYTLS_UPSTREAM_RESUME_ARM
+            && ngx_anytls_transport_arm_read(c) != NGX_OK)
+        {
             ngx_anytls_stream_close(st);
             return resumed;
+        }
+        if (action == NGX_ANYTLS_UPSTREAM_RESUME_POST) {
+            ngx_anytls_upstream_mux_post_read(c);
         }
         resumed++;
     }

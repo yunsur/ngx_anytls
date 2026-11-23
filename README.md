@@ -147,7 +147,7 @@ clients see the stream closed. The session stays alive. Independent of
 - **Default:** `8m`
 - **Context:** `stream`, `server`
 
-Maximum pending output (frames waiting to be sent to the client) per connection. When exceeded, upstream reads are blocked until the output drains.
+Maximum pending output (frames waiting to be sent to the client) per connection. When exceeded, upstream reads are blocked until the output drains. Data or EOF that became ready while blocked is processed as soon as output pressure clears.
 
 ### `anytls_max_pending_input`
 
